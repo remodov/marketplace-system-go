@@ -54,6 +54,11 @@ func (s *Service) ChangePrice(ctx context.Context, id uuid.UUID, newPrice decima
 	return s.change(ctx, id, func(p *Product) error { return p.ChangePrice(newPrice) })
 }
 
+// TODO шаг 4: сценарий ApplyDiscount через change
+func (s *Service) ApplyDiscount(ctx context.Context, id uuid.UUID, percent int) (*Product, error) {
+	return s.store.ByID(ctx, id)
+}
+
 func (s *Service) ChangeStock(ctx context.Context, id uuid.UUID, delta int) (*Product, error) {
 	return s.change(ctx, id, func(p *Product) error { return p.ChangeStock(delta) })
 }

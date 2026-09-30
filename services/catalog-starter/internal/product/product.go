@@ -7,6 +7,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const MaxDiscountPercent = 50
+
 type Product struct {
 	id      uuid.UUID
 	title   string
@@ -43,6 +45,11 @@ func (p *Product) ChangePrice(newPrice decimal.Decimal) error {
 		return invalid("цена должна быть больше нуля")
 	}
 	p.price = newPrice
+	return nil
+}
+
+// TODO шаг 4: скидка не глубже MaxDiscountPercent, цена округляется до копеек
+func (p *Product) ApplyDiscount(percent int) error {
 	return nil
 }
 

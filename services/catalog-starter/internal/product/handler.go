@@ -30,6 +30,7 @@ func Routes(r chi.Router, service *Service) {
 		r.Post("/{id}/reserve", h.reserve)
 		r.Patch("/{id}/price", h.changePrice)
 		r.Patch("/{id}/stock", h.changeStock)
+		// TODO шаг 4: PATCH /{id}/discount с телом {"percent": N}
 	})
 }
 

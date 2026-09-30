@@ -38,6 +38,8 @@ func (p *Product) Price() decimal.Decimal { return p.price }
 func (p *Product) Stock() int             { return p.stock }
 func (p *Product) Version() int64         { return p.version }
 
+// TODO шаг 3: команды ChangePrice и ChangeStock с правилами отказа
+
 func (p *Product) Reserve(quantity int) error {
 	if quantity <= 0 {
 		return invalid("количество должно быть больше нуля")

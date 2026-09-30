@@ -28,6 +28,7 @@ func Routes(r chi.Router, service *Service) {
 		r.Post("/", h.create)
 		r.Get("/{id}", h.byID)
 		r.Post("/{id}/reserve", h.reserve)
+		// TODO шаг 3: PATCH /{id}/price и PATCH /{id}/stock
 	})
 }
 

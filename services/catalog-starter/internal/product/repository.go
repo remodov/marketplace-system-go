@@ -19,7 +19,7 @@ type Store interface {
 	Cheaper(ctx context.Context, maxPrice decimal.Decimal) ([]*Product, error)
 	Insert(ctx context.Context, p *Product) error
 	Update(ctx context.Context, p *Product) error
-	// TODO шаг 5: чтение строки под блокировку внутри транзакции
+	ByIDForUpdate(ctx context.Context, id uuid.UUID) (*Product, error)
 	WithTx(ctx context.Context, fn func(tx Store) error) error
 }
 
@@ -38,8 +38,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool, db: pool}
 }
 
-// TODO шаг 5: колонка reserved в выборках, вставке и обновлении
-const columns = "id, title, price::text, stock, version"
+const columns = "id, title, price::text, stock, reserved, version"
 
 func (r *Repository) All(ctx context.Context) ([]*Product, error) {
 	return r.list(ctx, "SELECT "+columns+" FROM products ORDER BY title")
@@ -57,17 +56,21 @@ func (r *Repository) ByID(ctx context.Context, id uuid.UUID) (*Product, error) {
 	return r.one(ctx, "SELECT "+columns+" FROM products WHERE id = $1", id)
 }
 
+func (r *Repository) ByIDForUpdate(ctx context.Context, id uuid.UUID) (*Product, error) {
+	return r.one(ctx, "SELECT "+columns+" FROM products WHERE id = $1 FOR UPDATE", id)
+}
+
 func (r *Repository) Insert(ctx context.Context, p *Product) error {
 	_, err := r.db.Exec(ctx,
-		"INSERT INTO products (id, title, price, stock, version) VALUES ($1, $2, $3::numeric, $4, $5)",
-		p.id, p.title, p.price.String(), p.stock, p.version)
+		"INSERT INTO products (id, title, price, stock, reserved, version) VALUES ($1, $2, $3::numeric, $4, $5, $6)",
+		p.id, p.title, p.price.String(), p.stock, p.reserved, p.version)
 	return err
 }
 
 func (r *Repository) Update(ctx context.Context, p *Product) error {
 	tag, err := r.db.Exec(ctx,
-		"UPDATE products SET title = $2, price = $3::numeric, stock = $4, version = version + 1 WHERE id = $1 AND version = $5",
-		p.id, p.title, p.price.String(), p.stock, p.version)
+		"UPDATE products SET title = $2, price = $3::numeric, stock = $4, reserved = $5, version = version + 1 WHERE id = $1 AND version = $6",
+		p.id, p.title, p.price.String(), p.stock, p.reserved, p.version)
 	if err != nil {
 		return err
 	}
@@ -117,18 +120,19 @@ func (r *Repository) one(ctx context.Context, sql string, id uuid.UUID) (*Produc
 
 func scan(row pgx.Row) (*Product, error) {
 	var (
-		id      uuid.UUID
-		title   string
-		price   string
-		stock   int
-		version int64
+		id       uuid.UUID
+		title    string
+		price    string
+		stock    int
+		reserved int
+		version  int64
 	)
-	if err := row.Scan(&id, &title, &price, &stock, &version); err != nil {
+	if err := row.Scan(&id, &title, &price, &stock, &reserved, &version); err != nil {
 		return nil, err
 	}
 	money, err := decimal.NewFromString(price)
 	if err != nil {
 		return nil, fmt.Errorf("цена %q в базе не число: %w", price, err)
 	}
-	return Restore(id, title, money, stock, version), nil
+	return Restore(id, title, money, stock, reserved, version), nil
 }

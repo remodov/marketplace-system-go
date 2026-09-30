@@ -77,16 +77,23 @@ func (s *Service) change(ctx context.Context, id uuid.UUID, command func(*Produc
 }
 
 func (s *Service) Reserve(ctx context.Context, id uuid.UUID, quantity int) (*Product, error) {
-	// TODO шаг 5: транзакция и строка под блокировкой, иначе двое прочитают один остаток
-	p, err := s.store.ByID(ctx, id)
+	var reserved *Product
+	err := s.store.WithTx(ctx, func(tx Store) error {
+		p, err := tx.ByIDForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := p.Reserve(quantity); err != nil {
+			return err
+		}
+		if err := tx.Update(ctx, p); err != nil {
+			return err
+		}
+		reserved = p
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := p.Reserve(quantity); err != nil {
-		return nil, err
-	}
-	if err := s.store.Update(ctx, p); err != nil {
-		return nil, err
-	}
-	return p, nil
+	return reserved, nil
 }

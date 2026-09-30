@@ -10,11 +10,12 @@ import (
 const MaxDiscountPercent = 50
 
 type Product struct {
-	id      uuid.UUID
-	title   string
-	price   decimal.Decimal
-	stock   int
-	version int64
+	id       uuid.UUID
+	title    string
+	price    decimal.Decimal
+	stock    int
+	reserved int
+	version  int64
 }
 
 func New(title string, price decimal.Decimal, stock int) (*Product, error) {
@@ -30,8 +31,8 @@ func New(title string, price decimal.Decimal, stock int) (*Product, error) {
 	return &Product{id: uuid.New(), title: strings.TrimSpace(title), price: price, stock: stock}, nil
 }
 
-func Restore(id uuid.UUID, title string, price decimal.Decimal, stock int, version int64) *Product {
-	return &Product{id: id, title: title, price: price, stock: stock, version: version}
+func Restore(id uuid.UUID, title string, price decimal.Decimal, stock, reserved int, version int64) *Product {
+	return &Product{id: id, title: title, price: price, stock: stock, reserved: reserved, version: version}
 }
 
 func (p *Product) ID() uuid.UUID          { return p.id }
@@ -40,10 +41,8 @@ func (p *Product) Price() decimal.Decimal { return p.price }
 func (p *Product) Stock() int             { return p.stock }
 func (p *Product) Version() int64         { return p.version }
 
-// TODO шаг 5: поле reserved, Restore с ним, Available = stock - reserved;
-// резерв удерживает товар, списание не может забрать обещанное покупателю
-func (p *Product) Reserved() int  { return 0 }
-func (p *Product) Available() int { return p.stock }
+func (p *Product) Reserved() int  { return p.reserved }
+func (p *Product) Available() int { return p.stock - p.reserved }
 
 func (p *Product) ChangePrice(newPrice decimal.Decimal) error {
 	if newPrice.Sign() <= 0 {
@@ -66,8 +65,8 @@ func (p *Product) ChangeStock(delta int) error {
 	if delta == 0 {
 		return invalid("изменение остатка не может быть нулевым")
 	}
-	if p.stock+delta < 0 {
-		return &OutOfStockError{ID: p.id, Requested: -delta, Available: p.stock}
+	if p.stock+delta < p.reserved {
+		return &OutOfStockError{ID: p.id, Requested: -delta, Available: p.Available()}
 	}
 	p.stock += delta
 	return nil
@@ -77,9 +76,9 @@ func (p *Product) Reserve(quantity int) error {
 	if quantity <= 0 {
 		return invalid("количество должно быть больше нуля")
 	}
-	if quantity > p.stock {
-		return &OutOfStockError{ID: p.id, Requested: quantity, Available: p.stock}
+	if quantity > p.Available() {
+		return &OutOfStockError{ID: p.id, Requested: quantity, Available: p.Available()}
 	}
-	p.stock -= quantity
+	p.reserved += quantity
 	return nil
 }

@@ -28,7 +28,8 @@ func Routes(r chi.Router, service *Service) {
 		r.Post("/", h.create)
 		r.Get("/{id}", h.byID)
 		r.Post("/{id}/reserve", h.reserve)
-		// TODO шаг 3: PATCH /{id}/price и PATCH /{id}/stock
+		r.Patch("/{id}/price", h.changePrice)
+		r.Patch("/{id}/stock", h.changeStock)
 	})
 }
 
@@ -40,6 +41,14 @@ type createRequest struct {
 
 type reserveRequest struct {
 	Quantity *int `json:"quantity"`
+}
+
+type changePriceRequest struct {
+	Price *decimal.Decimal `json:"price"`
+}
+
+type changeStockRequest struct {
+	Delta *int `json:"delta"`
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +131,52 @@ func (h *Handler) reserve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := h.service.Reserve(r.Context(), id, *req.Quantity)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, CardOf(p))
+}
+
+func (h *Handler) changePrice(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req changePriceRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Price == nil {
+		httpx.WriteFieldErrors(w, r, map[string]string{"price": "цена обязательна"})
+		return
+	}
+	if req.Price.Sign() <= 0 {
+		httpx.WriteFieldErrors(w, r, map[string]string{"price": "цена должна быть больше нуля"})
+		return
+	}
+	p, err := h.service.ChangePrice(r.Context(), id, *req.Price)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, CardOf(p))
+}
+
+func (h *Handler) changeStock(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req changeStockRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Delta == nil {
+		httpx.WriteFieldErrors(w, r, map[string]string{"delta": "изменение остатка обязательно"})
+		return
+	}
+	p, err := h.service.ChangeStock(r.Context(), id, *req.Delta)
 	if err != nil {
 		h.fail(w, r, err)
 		return

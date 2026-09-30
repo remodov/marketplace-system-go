@@ -50,7 +50,27 @@ func (s *Service) Create(ctx context.Context, title string, price decimal.Decima
 	return p, nil
 }
 
-// TODO шаг 3: сценарии ChangePrice и ChangeStock
+func (s *Service) ChangePrice(ctx context.Context, id uuid.UUID, newPrice decimal.Decimal) (*Product, error) {
+	return s.change(ctx, id, func(p *Product) error { return p.ChangePrice(newPrice) })
+}
+
+func (s *Service) ChangeStock(ctx context.Context, id uuid.UUID, delta int) (*Product, error) {
+	return s.change(ctx, id, func(p *Product) error { return p.ChangeStock(delta) })
+}
+
+func (s *Service) change(ctx context.Context, id uuid.UUID, command func(*Product) error) (*Product, error) {
+	p, err := s.store.ByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := command(p); err != nil {
+		return nil, err
+	}
+	if err := s.store.Update(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
 
 func (s *Service) Reserve(ctx context.Context, id uuid.UUID, quantity int) (*Product, error) {
 	p, err := s.store.ByID(ctx, id)

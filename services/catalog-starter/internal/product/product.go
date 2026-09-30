@@ -38,7 +38,24 @@ func (p *Product) Price() decimal.Decimal { return p.price }
 func (p *Product) Stock() int             { return p.stock }
 func (p *Product) Version() int64         { return p.version }
 
-// TODO шаг 3: команды ChangePrice и ChangeStock с правилами отказа
+func (p *Product) ChangePrice(newPrice decimal.Decimal) error {
+	if newPrice.Sign() <= 0 {
+		return invalid("цена должна быть больше нуля")
+	}
+	p.price = newPrice
+	return nil
+}
+
+func (p *Product) ChangeStock(delta int) error {
+	if delta == 0 {
+		return invalid("изменение остатка не может быть нулевым")
+	}
+	if p.stock+delta < 0 {
+		return &OutOfStockError{ID: p.id, Requested: -delta, Available: p.stock}
+	}
+	p.stock += delta
+	return nil
+}
 
 func (p *Product) Reserve(quantity int) error {
 	if quantity <= 0 {

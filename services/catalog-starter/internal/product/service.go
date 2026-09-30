@@ -2,6 +2,7 @@ package product
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -30,13 +31,34 @@ func (s *Service) CheaperThan(ctx context.Context, maxPrice decimal.Decimal) ([]
 	return s.store.Cheaper(ctx, maxPrice)
 }
 
-// TODO шаг 6: карточка из кэша, сброс записи при любом изменении товара
 func (s *Service) Card(ctx context.Context, id uuid.UUID) (Card, error) {
+	var card Card
+	hit, err := s.cache.Get(ctx, cardKey(id), &card)
+	if err != nil {
+		slog.Warn("кэш карточек недоступен, читаем из базы", "err", err)
+	}
+	if hit {
+		return card, nil
+	}
 	p, err := s.store.ByID(ctx, id)
 	if err != nil {
 		return Card{}, err
 	}
-	return CardOf(p), nil
+	card = CardOf(p)
+	if err := s.cache.Set(ctx, cardKey(id), card); err != nil {
+		slog.Warn("карточка не попала в кэш", "err", err)
+	}
+	return card, nil
+}
+
+func cardKey(id uuid.UUID) string {
+	return "product-card:" + id.String()
+}
+
+func (s *Service) forget(ctx context.Context, id uuid.UUID) {
+	if err := s.cache.Delete(ctx, cardKey(id)); err != nil {
+		slog.Warn("карточка не сброшена из кэша", "id", id, "err", err)
+	}
 }
 
 func (s *Service) ByID(ctx context.Context, id uuid.UUID) (*Product, error) {
@@ -77,6 +99,7 @@ func (s *Service) change(ctx context.Context, id uuid.UUID, command func(*Produc
 	if err := s.store.Update(ctx, p); err != nil {
 		return nil, err
 	}
+	s.forget(ctx, id)
 	return p, nil
 }
 
@@ -99,5 +122,6 @@ func (s *Service) Reserve(ctx context.Context, id uuid.UUID, quantity int) (*Pro
 	if err != nil {
 		return nil, err
 	}
+	s.forget(ctx, id)
 	return reserved, nil
 }

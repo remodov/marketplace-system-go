@@ -1,0 +1,46 @@
+# Маркетплейс на Go: сквозная система для практики
+
+Та же система, что в [практикуме на Java](https://github.com/remodov/marketplace-system):
+маркетплейс из разбора [«Как разбить систему на сервисы»](https://vikulin-va.ru/case/services-map/),
+только написанный на Go. Репозиторий - практическая часть программы
+[«Backend · Go»](https://vikulin-va.ru/programs/backend-go/) с
+[vikulin-va.ru](https://vikulin-va.ru/): каждый шаг практикума привязан к статьям,
+которые закрывают его тему.
+
+## Что внутри
+
+| сервис | отвечает за | стек |
+|---|---|---|
+| `services/catalog-starter` | карточки товаров, остатки, резерв, поиск | `net/http` + chi, pgx, миграции goose, Redis |
+
+Пока это первая часть практикума - учебный каталог и шесть шагов на нём
+([план](docs/practicum/PLAN.md)). Взрослые сервисы (заказы, платежи, уведомления)
+появятся следом, по образцу Java-версии.
+
+## С чего начинать
+
+[`services/catalog-starter`](services/catalog-starter/README.md): обработчик -> сервис ->
+репозиторий, одна таблица, SQL руками. Клонировал, поднял базу, запустил, увидел товар.
+
+## Поднять стенд
+
+```bash
+docker compose -f infra/compose.yaml up -d
+docker compose -f infra/compose.yaml ps
+```
+
+| что | порт | зачем |
+|---|---|---|
+| PostgreSQL | 5440 | база каталога (`catalog_starter`) и база для тестов (`catalog_starter_test`) |
+| Redis | 6381 | кэш карточек, шаг 6 |
+
+## Как устроен шаг
+
+Ветка `step-NN-<тема>` - задание: каркас на месте, реализация вынута, тест красный,
+условие в `TASK.md` внутри сервиса. Ветка `step-NN-<тема>-solution` - эталон.
+`main` - накопленный эталон всех шагов.
+
+```bash
+git switch step-02-read-endpoint
+go test ./services/catalog-starter/...
+```

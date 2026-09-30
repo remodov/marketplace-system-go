@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/cache"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/config"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/migrations"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/product"
@@ -26,6 +27,13 @@ func main() {
 		slog.Error("сервис остановлен с ошибкой", "err", err)
 		os.Exit(1)
 	}
+}
+
+func newCache(cfg config.Config) cache.Cache {
+	if cfg.CacheKind == "memory" {
+		return cache.NewMemory(cfg.CacheTTL)
+	}
+	return cache.NewRedis(cfg.RedisAddr, cfg.CacheTTL)
 }
 
 func run() error {
@@ -48,7 +56,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	service := product.NewService(product.NewRepository(pool))
+	service := product.NewService(product.NewRepository(pool), newCache(cfg))
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.Logger, middleware.Recoverer)

@@ -6,14 +6,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+
+	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/cache"
 )
 
 type Service struct {
 	store Store
+	cache cache.Cache
 }
 
-func NewService(store Store) *Service {
-	return &Service{store: store}
+func NewService(store Store, cache cache.Cache) *Service {
+	return &Service{store: store, cache: cache}
 }
 
 func (s *Service) Search(ctx context.Context, query string) ([]*Product, error) {
@@ -27,6 +30,7 @@ func (s *Service) CheaperThan(ctx context.Context, maxPrice decimal.Decimal) ([]
 	return s.store.Cheaper(ctx, maxPrice)
 }
 
+// TODO шаг 6: карточка из кэша, сброс записи при любом изменении товара
 func (s *Service) Card(ctx context.Context, id uuid.UUID) (Card, error) {
 	p, err := s.store.ByID(ctx, id)
 	if err != nil {

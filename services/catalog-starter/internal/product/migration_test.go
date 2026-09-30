@@ -26,3 +26,12 @@ func TestMigrationsGiveEveryColumnTheTypeReads(t *testing.T) {
 		}
 	}
 }
+
+func TestTrigramIndexIsInPlace(t *testing.T) {
+	var name string
+	err := pool.QueryRow(context.Background(),
+		"SELECT indexname FROM pg_indexes WHERE tablename = 'products' AND indexdef LIKE '%gin_trgm_ops%'").Scan(&name)
+	if err != nil {
+		t.Fatalf("триграммного gin-индекса по title нет: %v", err)
+	}
+}

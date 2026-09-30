@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/shopspring/decimal"
 
+	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/cache"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/migrations"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/product"
 )
@@ -46,7 +48,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	service = product.NewService(product.NewRepository(pool))
+	service = product.NewService(product.NewRepository(pool), cache.NewMemory(10*time.Minute))
 	r := chi.NewRouter()
 	product.Routes(r, service)
 	router = r

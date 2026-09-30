@@ -16,6 +16,7 @@ type Store interface {
 	All(ctx context.Context) ([]*Product, error)
 	ByTitle(ctx context.Context, part string) ([]*Product, error)
 	ByID(ctx context.Context, id uuid.UUID) (*Product, error)
+	// TODO шаг 2: выборка «не дороже» - метод в Store и SQL в Repository
 	Insert(ctx context.Context, p *Product) error
 	Update(ctx context.Context, p *Product) error
 	WithTx(ctx context.Context, fn func(tx Store) error) error

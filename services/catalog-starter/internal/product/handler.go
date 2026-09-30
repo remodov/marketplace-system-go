@@ -42,6 +42,7 @@ type reserveRequest struct {
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
+	// TODO шаг 2: необязательный параметр maxPrice и выбор сценария
 	found, err := h.service.Search(r.Context(), r.URL.Query().Get("query"))
 	if err != nil {
 		h.fail(w, r, err)

@@ -42,8 +42,20 @@ type reserveRequest struct {
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
-	// TODO шаг 2: необязательный параметр maxPrice и выбор сценария
-	found, err := h.service.Search(r.Context(), r.URL.Query().Get("query"))
+	var (
+		found []*Product
+		err   error
+	)
+	if raw := r.URL.Query().Get("maxPrice"); raw != "" {
+		maxPrice, parseErr := decimal.NewFromString(raw)
+		if parseErr != nil || maxPrice.Sign() <= 0 {
+			httpx.WriteFieldErrors(w, r, map[string]string{"maxPrice": "должна быть положительным числом"})
+			return
+		}
+		found, err = h.service.CheaperThan(r.Context(), maxPrice)
+	} else {
+		found, err = h.service.Search(r.Context(), r.URL.Query().Get("query"))
+	}
 	if err != nil {
 		h.fail(w, r, err)
 		return

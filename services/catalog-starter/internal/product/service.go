@@ -23,7 +23,9 @@ func (s *Service) Search(ctx context.Context, query string) ([]*Product, error) 
 	return s.store.ByTitle(ctx, strings.TrimSpace(query))
 }
 
-// TODO шаг 2: сценарий чтения «не дороже» - CheaperThan(ctx, maxPrice)
+func (s *Service) CheaperThan(ctx context.Context, maxPrice decimal.Decimal) ([]*Product, error) {
+	return s.store.Cheaper(ctx, maxPrice)
+}
 
 func (s *Service) Card(ctx context.Context, id uuid.UUID) (Card, error) {
 	p, err := s.store.ByID(ctx, id)

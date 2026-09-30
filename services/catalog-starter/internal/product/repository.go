@@ -16,7 +16,7 @@ type Store interface {
 	All(ctx context.Context) ([]*Product, error)
 	ByTitle(ctx context.Context, part string) ([]*Product, error)
 	ByID(ctx context.Context, id uuid.UUID) (*Product, error)
-	// TODO шаг 2: выборка «не дороже» - метод в Store и SQL в Repository
+	Cheaper(ctx context.Context, maxPrice decimal.Decimal) ([]*Product, error)
 	Insert(ctx context.Context, p *Product) error
 	Update(ctx context.Context, p *Product) error
 	WithTx(ctx context.Context, fn func(tx Store) error) error
@@ -45,6 +45,10 @@ func (r *Repository) All(ctx context.Context) ([]*Product, error) {
 
 func (r *Repository) ByTitle(ctx context.Context, part string) ([]*Product, error) {
 	return r.list(ctx, "SELECT "+columns+" FROM products WHERE title ILIKE '%' || $1 || '%' ORDER BY title", part)
+}
+
+func (r *Repository) Cheaper(ctx context.Context, maxPrice decimal.Decimal) ([]*Product, error) {
+	return r.list(ctx, "SELECT "+columns+" FROM products WHERE price <= $1::numeric ORDER BY products.price", maxPrice.String())
 }
 
 func (r *Repository) ByID(ctx context.Context, id uuid.UUID) (*Product, error) {

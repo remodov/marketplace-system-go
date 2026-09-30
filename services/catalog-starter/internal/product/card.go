@@ -6,12 +6,15 @@ import (
 )
 
 type Card struct {
-	ID    uuid.UUID       `json:"id"`
-	Title string          `json:"title"`
-	Price decimal.Decimal `json:"price"`
-	Stock int             `json:"stock"`
+	ID        uuid.UUID       `json:"id"`
+	Title     string          `json:"title"`
+	Price     decimal.Decimal `json:"price"`
+	Stock     int             `json:"stock"`
+	Reserved  int             `json:"reserved"`
+	Available int             `json:"available"`
 }
 
 func CardOf(p *Product) Card {
-	return Card{ID: p.ID(), Title: p.Title(), Price: p.Price(), Stock: p.Stock()}
+	return Card{ID: p.ID(), Title: p.Title(), Price: p.Price(), Stock: p.Stock(),
+		Reserved: p.Reserved(), Available: p.Available()}
 }

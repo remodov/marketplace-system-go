@@ -40,6 +40,11 @@ func (p *Product) Price() decimal.Decimal { return p.price }
 func (p *Product) Stock() int             { return p.stock }
 func (p *Product) Version() int64         { return p.version }
 
+// TODO шаг 5: поле reserved, Restore с ним, Available = stock - reserved;
+// резерв удерживает товар, списание не может забрать обещанное покупателю
+func (p *Product) Reserved() int  { return 0 }
+func (p *Product) Available() int { return p.stock }
+
 func (p *Product) ChangePrice(newPrice decimal.Decimal) error {
 	if newPrice.Sign() <= 0 {
 		return invalid("цена должна быть больше нуля")

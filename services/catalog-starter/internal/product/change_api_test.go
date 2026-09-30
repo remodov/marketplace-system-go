@@ -59,6 +59,14 @@ func TestWriteOffBelowZeroIsConflict(t *testing.T) {
 	}
 }
 
+func TestWriteOffCannotTouchReservedGoods(t *testing.T) {
+	p := mustCreate(t, unique("Беспроводная мышь"), "1990.00", 5)
+	rec := call(t, http.MethodPost, "/products/"+p.ID().String()+"/reserve", `{"quantity":4}`)
+	expectStatus(t, rec, http.StatusOK)
+	rec = call(t, http.MethodPatch, "/products/"+p.ID().String()+"/stock", `{"delta":-3}`)
+	expectStatus(t, rec, http.StatusConflict)
+}
+
 func TestZeroDeltaIsBadRequest(t *testing.T) {
 	p := mustCreate(t, unique("Беспроводная мышь"), "1990.00", 5)
 	rec := call(t, http.MethodPatch, "/products/"+p.ID().String()+"/stock", `{"delta":0}`)

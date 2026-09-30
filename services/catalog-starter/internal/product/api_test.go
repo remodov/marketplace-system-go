@@ -129,12 +129,14 @@ func TestSearchFindsByPartOfTitle(t *testing.T) {
 	}
 }
 
-func TestReserveWritesOffStock(t *testing.T) {
+func TestReserveHoldsStockInsteadOfWritingItOff(t *testing.T) {
 	p := mustCreate(t, unique("USB-хаб"), "890.00", 5)
 	rec := call(t, http.MethodPost, "/products/"+p.ID().String()+"/reserve", `{"quantity":2}`)
 	expectStatus(t, rec, http.StatusOK)
-	if got := body(t, rec)["stock"]; got != float64(3) {
-		t.Fatalf("после резерва двух из пяти остаток: %v", got)
+	card := body(t, rec)
+	if card["stock"] != float64(5) || card["reserved"] != float64(2) || card["available"] != float64(3) {
+		t.Fatalf("резерв удерживает, а не списывает: stock=%v reserved=%v available=%v",
+			card["stock"], card["reserved"], card["available"])
 	}
 }
 

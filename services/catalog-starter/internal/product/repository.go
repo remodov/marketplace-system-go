@@ -19,6 +19,7 @@ type Store interface {
 	Cheaper(ctx context.Context, maxPrice decimal.Decimal) ([]*Product, error)
 	Insert(ctx context.Context, p *Product) error
 	Update(ctx context.Context, p *Product) error
+	// TODO шаг 5: чтение строки под блокировку внутри транзакции
 	WithTx(ctx context.Context, fn func(tx Store) error) error
 }
 
@@ -37,6 +38,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool, db: pool}
 }
 
+// TODO шаг 5: колонка reserved в выборках, вставке и обновлении
 const columns = "id, title, price::text, stock, version"
 
 func (r *Repository) All(ctx context.Context) ([]*Product, error) {

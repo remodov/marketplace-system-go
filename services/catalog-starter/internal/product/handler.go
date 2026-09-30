@@ -30,7 +30,7 @@ func Routes(r chi.Router, service *Service) {
 		r.Post("/{id}/reserve", h.reserve)
 		r.Patch("/{id}/price", h.changePrice)
 		r.Patch("/{id}/stock", h.changeStock)
-		// TODO шаг 4: PATCH /{id}/discount с телом {"percent": N}
+		r.Patch("/{id}/discount", h.applyDiscount)
 	})
 }
 
@@ -50,6 +50,10 @@ type changePriceRequest struct {
 
 type changeStockRequest struct {
 	Delta *int `json:"delta"`
+}
+
+type applyDiscountRequest struct {
+	Percent *int `json:"percent"`
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
@@ -178,6 +182,27 @@ func (h *Handler) changeStock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := h.service.ChangeStock(r.Context(), id, *req.Delta)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, CardOf(p))
+}
+
+func (h *Handler) applyDiscount(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req applyDiscountRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Percent == nil {
+		httpx.WriteFieldErrors(w, r, map[string]string{"percent": "процент скидки обязателен"})
+		return
+	}
+	p, err := h.service.ApplyDiscount(r.Context(), id, *req.Percent)
 	if err != nil {
 		h.fail(w, r, err)
 		return

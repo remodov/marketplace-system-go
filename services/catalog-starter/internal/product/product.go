@@ -48,8 +48,12 @@ func (p *Product) ChangePrice(newPrice decimal.Decimal) error {
 	return nil
 }
 
-// TODO шаг 4: скидка не глубже MaxDiscountPercent, цена округляется до копеек
 func (p *Product) ApplyDiscount(percent int) error {
+	if percent < 1 || percent > MaxDiscountPercent {
+		return invalid("скидка допустима от 1 до %d процентов, а не %d", MaxDiscountPercent, percent)
+	}
+	multiplier := decimal.NewFromInt(int64(100 - percent)).Div(decimal.NewFromInt(100))
+	p.price = p.price.Mul(multiplier).Round(2)
 	return nil
 }
 

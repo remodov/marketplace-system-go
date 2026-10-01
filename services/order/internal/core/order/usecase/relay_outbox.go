@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -21,28 +20,10 @@ func NewOutboxRelay(outbox out.EventOutbox, publisher out.ExternalEventPublisher
 	return &OutboxRelay{outbox: outbox, publisher: publisher, clock: clock, uow: uow, batchSize: batchSize}
 }
 
+// TODO шаг 10: в одной транзакции взять пачку неотправленных строк, опубликовать
+// каждую через издателя и пометить отправленной; отказ брокера откатывает всё.
 func (r *OutboxRelay) Once(ctx context.Context) (int, error) {
-	published := 0
-	err := r.uow.Within(ctx, func(ctx context.Context) error {
-		batch, err := r.outbox.Unpublished(ctx, r.batchSize)
-		if err != nil {
-			return err
-		}
-		for _, message := range batch {
-			if err := r.publisher.Publish(ctx, message); err != nil {
-				return fmt.Errorf("публикация %s %s: %w", message.EventType, message.ID, err)
-			}
-			if err := r.outbox.MarkPublished(ctx, message.ID, r.clock.Now()); err != nil {
-				return err
-			}
-			published++
-		}
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return published, nil
+	return 0, nil
 }
 
 func (r *OutboxRelay) Run(ctx context.Context, every, batchTimeout time.Duration) {

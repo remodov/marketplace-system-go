@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	ordersv1 "github.com/remodov/marketplace-system-go/contracts/orders/v1"
 	"github.com/remodov/marketplace-system-go/services/order/internal/core/order/aggregate"
 	"github.com/remodov/marketplace-system-go/services/order/internal/core/order/port/out"
 )
@@ -27,21 +26,9 @@ func NewOutbox(pool *pgxpool.Pool, ids out.IDGenerator) *PgOutbox {
 	return &PgOutbox{pool: pool, ids: ids}
 }
 
+// TODO шаг 10: каждое событие строкой в outbox той же транзакцией, что и заказ,
+// published_at пустой.
 func (r *PgOutbox) Append(ctx context.Context, events []aggregate.Event) error {
-	q := db(ctx, r.pool)
-	for _, event := range events {
-		payload, err := payloadOf(event)
-		if err != nil {
-			return err
-		}
-		_, err = q.Exec(ctx,
-			`INSERT INTO outbox (id, aggregate_id, aggregate_type, event_type, event_version, payload, occurred_at)
-			 VALUES ($1, $2, $3, $4, 1, $5::jsonb, $6)`,
-			r.ids.NewID(), event.AggregateID(), aggregateOrder, event.EventType(), string(payload), event.OccurredAt())
-		if err != nil {
-			return fmt.Errorf("outbox insert: %w", err)
-		}
-	}
 	return nil
 }
 
@@ -79,15 +66,8 @@ func (r *PgOutbox) MarkPublished(ctx context.Context, id uuid.UUID, at time.Time
 	return nil
 }
 
+// TODO шаг 10: собрать payload по внешнему контракту из contracts/orders/v1,
+// а не отдавать наружу внутренний тип события.
 func payloadOf(event aggregate.Event) ([]byte, error) {
-	switch e := event.(type) {
-	case aggregate.OrderCreated:
-		return json.Marshal(ordersv1.OrderCreatedPayload{
-			OrderEventBase: ordersv1.OrderEventBase{OrderID: e.OrderID, CustomerID: e.CustomerID, SellerID: e.SellerID, OccurredAt: e.At},
-			TotalAmount:    e.Total.Amount.StringFixed(2),
-			Currency:       e.Total.Currency,
-			ItemsCount:     len(e.Items),
-		})
-	}
-	return nil, fmt.Errorf("событие %s не описано во внешнем контракте", event.EventType())
+	return json.Marshal(event)
 }

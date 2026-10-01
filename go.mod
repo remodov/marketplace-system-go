@@ -11,6 +11,7 @@ require (
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/shopspring/decimal v1.4.0
+	github.com/sony/gobreaker/v2 v2.4.0
 	golang.org/x/tools v0.50.0
 )
 

@@ -69,7 +69,7 @@ func testSettings(baseURL string) catalog.Settings {
 
 func clearTables(t *testing.T) {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), "TRUNCATE order_items, orders"); err != nil {
+	if _, err := pool.Exec(context.Background(), "TRUNCATE idempotency_keys, order_items, orders"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -138,6 +138,24 @@ func orderBody(productID, sellerID uuid.UUID, quantity int) string {
 	return fmt.Sprintf(`{"items":[{"productId":"%s","sellerId":"%s","quantity":%d}],
 		"shippingAddress":{"country":"RU","city":"Москва","street":"Тверская, 1","postalCode":"125009"}}`,
 		productID, sellerID, quantity)
+}
+
+func postOrder(t *testing.T, router http.Handler, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return postOrderWithKey(t, router, token, uuid.NewString(), body)
+}
+
+func postOrderWithKey(t *testing.T, router http.Handler, token, idempotencyKey, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", idempotencyKey)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
 }
 
 func call(t *testing.T, router http.Handler, method, path, token, body string) *httptest.ResponseRecorder {

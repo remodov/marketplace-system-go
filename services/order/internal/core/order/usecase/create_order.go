@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 
@@ -21,27 +22,79 @@ type CreateOrder struct {
 	Customer        security.Principal
 	Lines           []OrderLine
 	ShippingAddress aggregate.Address
+	IdempotencyKey  string
+	RequestHash     string
+}
+
+type CreateOrderResult struct {
+	Order   *aggregate.Order
+	Created bool
 }
 
 type CreateOrderHandler struct {
 	orders  out.OrderRepository
 	catalog out.CatalogGateway
+	keys    out.IdempotencyKeys
 	clock   out.Clock
 	ids     out.IDGenerator
 	uow     out.UnitOfWork
 }
 
-func NewCreateOrderHandler(orders out.OrderRepository, catalog out.CatalogGateway, clock out.Clock, ids out.IDGenerator, uow out.UnitOfWork) *CreateOrderHandler {
-	return &CreateOrderHandler{orders: orders, catalog: catalog, clock: clock, ids: ids, uow: uow}
+func NewCreateOrderHandler(orders out.OrderRepository, catalog out.CatalogGateway, keys out.IdempotencyKeys, clock out.Clock, ids out.IDGenerator, uow out.UnitOfWork) *CreateOrderHandler {
+	return &CreateOrderHandler{orders: orders, catalog: catalog, keys: keys, clock: clock, ids: ids, uow: uow}
 }
 
-func (h *CreateOrderHandler) Handle(ctx context.Context, cmd CreateOrder) (*aggregate.Order, error) {
+var errKeyTaken = errors.New("ключ идемпотентности занят другим запросом")
+
+func (h *CreateOrderHandler) Handle(ctx context.Context, cmd CreateOrder) (CreateOrderResult, error) {
 	if len(cmd.Lines) == 0 {
-		return nil, apperr.Invalid("EMPTY_ORDER", "В заказе нет ни одной позиции")
+		return CreateOrderResult{}, apperr.Invalid("EMPTY_ORDER", "В заказе нет ни одной позиции")
 	}
 	if err := requireSingleSeller(cmd.Lines); err != nil {
-		return nil, err
+		return CreateOrderResult{}, err
 	}
+	if existing, found, err := h.keys.Find(ctx, cmd.IdempotencyKey, cmd.RequestHash); err != nil || found {
+		return h.replay(ctx, existing, err)
+	}
+	order, err := h.build(ctx, cmd)
+	if err != nil {
+		return CreateOrderResult{}, err
+	}
+	err = h.uow.Within(ctx, func(ctx context.Context) error {
+		if err := h.orders.Insert(ctx, order); err != nil {
+			return err
+		}
+		claimed, err := h.keys.Claim(ctx, cmd.IdempotencyKey, cmd.RequestHash, order.ID(), order.CreatedAt())
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			return errKeyTaken
+		}
+		return nil
+	})
+	if errors.Is(err, errKeyTaken) {
+		existing, _, err := h.keys.Find(ctx, cmd.IdempotencyKey, cmd.RequestHash)
+		return h.replay(ctx, existing, err)
+	}
+	if err != nil {
+		return CreateOrderResult{}, err
+	}
+	return CreateOrderResult{Order: order, Created: true}, nil
+}
+
+func (h *CreateOrderHandler) replay(ctx context.Context, orderID uuid.UUID, err error) (CreateOrderResult, error) {
+	if err != nil {
+		return CreateOrderResult{}, err
+	}
+	order, err := h.orders.ByID(ctx, orderID)
+	if err != nil {
+		return CreateOrderResult{}, err
+	}
+	return CreateOrderResult{Order: order, Created: false}, nil
+}
+
+func (h *CreateOrderHandler) build(ctx context.Context, cmd CreateOrder) (*aggregate.Order, error) {
 	prices, err := h.catalog.Prices(ctx, productIDs(cmd.Lines))
 	if err != nil {
 		return nil, err
@@ -58,14 +111,7 @@ func (h *CreateOrderHandler) Handle(ctx context.Context, cmd CreateOrder) (*aggr
 		}
 		items = append(items, item)
 	}
-	order, err := aggregate.New(h.ids.NewID(), cmd.Customer.Sub, items, cmd.ShippingAddress, h.clock.Now())
-	if err != nil {
-		return nil, err
-	}
-	if err := h.uow.Within(ctx, func(ctx context.Context) error { return h.orders.Insert(ctx, order) }); err != nil {
-		return nil, err
-	}
-	return order, nil
+	return aggregate.New(h.ids.NewID(), cmd.Customer.Sub, items, cmd.ShippingAddress, h.clock.Now())
 }
 
 func requireSingleSeller(lines []OrderLine) error {

@@ -76,9 +76,10 @@ func Build(ctx context.Context, cfg Config, deps Deps) (*App, error) {
 	}
 
 	orders := persistence.NewOrderRepository(pool)
+	keys := persistence.NewIdempotencyKeys(pool)
 	uow := persistence.NewUnitOfWork(pool)
 
-	create := usecase.NewCreateOrderHandler(orders, deps.Catalog, deps.Clock, deps.IDs, uow)
+	create := usecase.NewCreateOrderHandler(orders, deps.Catalog, keys, deps.Clock, deps.IDs, uow)
 	queries := query.NewHandler(orders)
 
 	handler := httpadapter.NewRouter(deps.Auth, httpadapter.NewOrderHandler(create, queries), pool)

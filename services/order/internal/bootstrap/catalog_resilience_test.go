@@ -20,7 +20,7 @@ func TestCatalog_whenFirstAnswerHangs_retrySavesTheOrder(t *testing.T) {
 	})
 	router := newApp(t, catalog.New(testSettings(fake.URL)))
 
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
+	rec := postOrder(t, router, customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
 
 	expectStatus(t, rec, http.StatusCreated)
 	expectOrders(t, 1)
@@ -32,7 +32,7 @@ func TestCatalog_whenDown_orderIsNotCreatedAndErrorIsDomain(t *testing.T) {
 	fake := startCatalog(t, func(_ int, w http.ResponseWriter, _ *http.Request) { dropConnection(w) })
 	router := newApp(t, catalog.New(testSettings(fake.URL)))
 
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
+	rec := postOrder(t, router, customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
 
 	expectStatus(t, rec, http.StatusServiceUnavailable)
 	expectCode(t, rec, "SERVICE_DEGRADED")
@@ -50,7 +50,7 @@ func TestCatalog_whenSlow_isCutOffByTimeout(t *testing.T) {
 	router := newApp(t, catalog.New(testSettings(fake.URL)))
 
 	started := time.Now()
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
+	rec := postOrder(t, router, customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
 	spent := time.Since(started)
 
 	expectStatus(t, rec, http.StatusServiceUnavailable)
@@ -69,12 +69,12 @@ func TestCatalog_whenDownRepeatedly_breakerStopsCallingIt(t *testing.T) {
 	router := newApp(t, catalog.New(settings))
 
 	for range 3 {
-		rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
+		rec := postOrder(t, router, customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
 		expectStatus(t, rec, http.StatusServiceUnavailable)
 	}
 	expectHits(t, fake, 6)
 
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
+	rec := postOrder(t, router, customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
 
 	expectStatus(t, rec, http.StatusServiceUnavailable)
 	expectCode(t, rec, "SERVICE_DEGRADED")

@@ -29,3 +29,8 @@ type IDGenerator interface {
 type UnitOfWork interface {
 	Within(ctx context.Context, fn func(ctx context.Context) error) error
 }
+
+type IdempotencyKeys interface {
+	Find(ctx context.Context, key, requestHash string) (orderID uuid.UUID, found bool, err error)
+	Claim(ctx context.Context, key, requestHash string, orderID uuid.UUID, now time.Time) (claimed bool, err error)
+}

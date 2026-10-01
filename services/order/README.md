@@ -6,7 +6,7 @@ Order Service из сквозного маркетплейс-кейса сайт
 
 **Уровень 3** методологии Use Case Pattern: агрегат `Order` с позициями и правилами внутри, команда и
 обработчик сценария с явными портами, выходной адаптер к каталогу с таймаутами, повтором и размыкателем.
-Статусная модель, идемпотентность, outbox и сага появляются на следующих шагах.
+С девятого шага создание заказа идемпотентно по заголовку `Idempotency-Key`. Статусная модель, outbox и сага появляются на следующих шагах.
 
 Спецификация в [`docs/spec/`](docs/spec/), контракт REST в [`docs/order.openapi.yaml`](docs/order.openapi.yaml).
 
@@ -21,12 +21,12 @@ internal/
     order/
       aggregate/                        Order и Item: поля закрыты, правила в методах, Money и Address
       port/out/                         интерфейсы: репозиторий, шлюз каталога, часы, идентификаторы, единица работы
-      usecase/                          команда CreateOrder и её обработчик
+      usecase/                          команда CreateOrder и её обработчик: ключ идемпотентности, цены, транзакция
       query/                            чтение заказа с проверкой владения
   adapter/
     in/http/                            chi, Problem Details, роли в middleware, DTO
     out/catalog/                        HTTP-клиент каталога: таймауты, повтор, размыкатель gobreaker
-    out/persistence/                    pgx, миграции goose, транзакция в контексте
+    out/persistence/                    pgx, миграции goose, транзакция в контексте, ключи идемпотентности
     out/system/                         системные часы и uuid
   bootstrap/                            composition root, настройки клиента каталога, тесты
 ```
@@ -52,7 +52,7 @@ go run ./cmd/order
 ```bash
 CUSTOMER=$(uuidgen | tr A-Z a-z)
 curl -s -X POST localhost:8084/api/v1/orders -H "Authorization: Bearer customer.$CUSTOMER" \
-  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" -H 'Content-Type: application/json' \
   -d '{"items":[{"productId":"<id опубликованного товара>","sellerId":"<id продавца>","quantity":2}],
        "shippingAddress":{"country":"RU","city":"Москва","street":"Тверская, 1","postalCode":"125009"}}'
 ```
@@ -76,6 +76,15 @@ curl -s -X POST localhost:8084/api/v1/orders -H "Authorization: Bearer customer.
 `503 SERVICE_DEGRADED`, заказ при этом не создаётся. Худшее время ответа при этих числах: две попытки по
 секунде и пауза, около 2,05 с.
 
+## Один запрос - один заказ
+
+Заголовок `Idempotency-Key` обязателен. Сценарий сначала ищет ключ: тот же ключ с тем же хешем тела отдаёт
+прежний заказ ответом 200, тот же ключ с другим телом - `409 IDEMPOTENCY_KEY_CONFLICT`. Если ключа нет, заказ и
+ключ пишутся в одной транзакции, ключ занимается вставкой с `ON CONFLICT DO NOTHING`: при гонке второй `INSERT`
+дожидается первой транзакции, получает ноль строк, откатывает свой заказ и читает чужой. Тест
+`TestIdempotency_sameKeyAtOnce_createsOneOrder` шлёт восемь одинаковых запросов разом и ждёт один заказ.
+Хеш тела считается в HTTP-адаптере по каноническому JSON разобранного запроса, в ядро доезжает уже строкой.
+
 ## Тесты
 
 ```bash
@@ -90,7 +99,7 @@ go test ./...
 
 `VALIDATION_ERROR`, `MALFORMED_REQUEST`, `EMPTY_ORDER`, `MULTI_SELLER_NOT_SUPPORTED` (400), `TOKEN_MISSING`,
 `TOKEN_INVALID` (401), `ACCESS_DENIED` (403), `PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND` (404),
-`SERVICE_DEGRADED` (503). Тело ошибки в формате Problem Details, `type` вида `urn:problem:order:<CODE>`.
+`IDEMPOTENCY_KEY_CONFLICT` (409), `SERVICE_DEGRADED` (503). Тело ошибки в формате Problem Details, `type` вида `urn:problem:order:<CODE>`.
 
 ## Что почитать
 
@@ -98,3 +107,4 @@ go test ./...
 - [Паттерны отказоустойчивости на Go](https://vikulin-va.ru/patterns/go/resilience/): повтор, таймаут, размыкатель.
 - [Монолит и микросервисы](https://vikulin-va.ru/architecture-choice/monolith-vs-microservices/): цена сетевого вызова к соседу.
 - [Гексагональная архитектура на Go](https://vikulin-va.ru/patterns/hexagonal/go/core-layer/): почему каталог для ядра - интерфейс.
+- [HTTP-заголовки и Idempotency-Key на Go](https://vikulin-va.ru/rest-api/go/headers/): ключ занимается до операции.

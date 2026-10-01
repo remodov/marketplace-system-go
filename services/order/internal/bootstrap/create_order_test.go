@@ -16,7 +16,7 @@ func TestCreateOrder_whenCatalogAnswers_storesOrderWithCatalogPrices(t *testing.
 	router := newApp(t, catalog.New(testSettings(fake.URL)))
 	customer, seller, product := uuid.New(), uuid.New(), uuid.New()
 
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(customer), orderBody(product, seller, 2))
+	rec := postOrder(t, router, customerToken(customer), orderBody(product, seller, 2))
 
 	expectStatus(t, rec, http.StatusCreated)
 	body := decode(t, rec)
@@ -41,7 +41,7 @@ func TestCreateOrder_whenProductUnknown_returns404WithoutRetry(t *testing.T) {
 	fake := startCatalog(t, func(_ int, w http.ResponseWriter, _ *http.Request) { answerNotFound(w) })
 	router := newApp(t, catalog.New(testSettings(fake.URL)))
 
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
+	rec := postOrder(t, router, customerToken(uuid.New()), orderBody(uuid.New(), uuid.New(), 1))
 
 	expectStatus(t, rec, http.StatusNotFound)
 	expectCode(t, rec, "PRODUCT_NOT_FOUND")
@@ -57,7 +57,7 @@ func TestCreateOrder_whenTwoSellers_isRejectedBeforeCatalog(t *testing.T) {
 		{"productId":"` + uuid.NewString() + `","sellerId":"` + uuid.NewString() + `","quantity":1}],
 		"shippingAddress":{"country":"RU","city":"Москва","street":"Тверская, 1","postalCode":"125009"}}`
 
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", customerToken(uuid.New()), body)
+	rec := postOrder(t, router, customerToken(uuid.New()), body)
 
 	expectStatus(t, rec, http.StatusBadRequest)
 	expectCode(t, rec, "MULTI_SELLER_NOT_SUPPORTED")
@@ -69,7 +69,7 @@ func TestCreateOrder_whenAnonymous_isRejected(t *testing.T) {
 	fake := startCatalog(t, func(_ int, w http.ResponseWriter, r *http.Request) { answerPrice(w, r, "100.00") })
 	router := newApp(t, catalog.New(testSettings(fake.URL)))
 
-	rec := call(t, router, http.MethodPost, "/api/v1/orders", "", orderBody(uuid.New(), uuid.New(), 1))
+	rec := postOrder(t, router, "", orderBody(uuid.New(), uuid.New(), 1))
 
 	expectStatus(t, rec, http.StatusUnauthorized)
 	expectCode(t, rec, "TOKEN_MISSING")
@@ -80,7 +80,7 @@ func TestGetOrder_whenForeignCustomer_returns404ButAdminSees(t *testing.T) {
 	fake := startCatalog(t, func(_ int, w http.ResponseWriter, r *http.Request) { answerPrice(w, r, "100.00") })
 	router := newApp(t, catalog.New(testSettings(fake.URL)))
 	owner := uuid.New()
-	created := decode(t, call(t, router, http.MethodPost, "/api/v1/orders", customerToken(owner), orderBody(uuid.New(), uuid.New(), 1)))
+	created := decode(t, postOrder(t, router, customerToken(owner), orderBody(uuid.New(), uuid.New(), 1)))
 	path := "/api/v1/orders/" + created["id"].(string)
 
 	expectStatus(t, call(t, router, http.MethodGet, path, customerToken(owner), ""), http.StatusOK)

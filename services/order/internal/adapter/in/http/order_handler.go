@@ -1,6 +1,8 @@
 package http
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -42,20 +44,35 @@ func (h *OrderHandler) createOrder(w http.ResponseWriter, r *http.Request) {
 	if req.ShippingAddress == nil || strings.TrimSpace(req.ShippingAddress.City) == "" || strings.TrimSpace(req.ShippingAddress.Street) == "" {
 		errs["shippingAddress"] = "нужны город и улица"
 	}
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idempotencyKey == "" || len(idempotencyKey) > 128 {
+		errs["Idempotency-Key"] = "обязательный заголовок до 128 символов"
+	}
 	if len(errs) > 0 {
 		writeProblemWithErrors(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Ошибка валидации входных данных", errs)
 		return
 	}
 	principal, _ := security.PrincipalFrom(r.Context())
-	order, err := h.create.Handle(r.Context(), usecase.CreateOrder{
+	result, err := h.create.Handle(r.Context(), usecase.CreateOrder{
 		Customer: principal, Lines: lines, ShippingAddress: toAddress(*req.ShippingAddress),
+		IdempotencyKey: idempotencyKey, RequestHash: requestHash(req),
 	})
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	w.Header().Set("Location", "/api/v1/orders/"+order.ID().String())
-	writeJSON(w, http.StatusCreated, toDTO(order))
+	if !result.Created {
+		writeJSON(w, http.StatusOK, toDTO(result.Order))
+		return
+	}
+	w.Header().Set("Location", "/api/v1/orders/"+result.Order.ID().String())
+	writeJSON(w, http.StatusCreated, toDTO(result.Order))
+}
+
+func requestHash(req CreateOrderRequest) string {
+	canonical, _ := json.Marshal(req)
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
 }
 
 func (h *OrderHandler) getOrder(w http.ResponseWriter, r *http.Request) {

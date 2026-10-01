@@ -76,13 +76,9 @@ func (p *Product) UpdatedAt() time.Time   { return p.updatedAt }
 
 func (p *Product) OwnedBy(sellerID uuid.UUID) bool { return p.sellerID == sellerID }
 
+// TODO шаг 7: правило BR-P01 - цена больше нуля, округление до копеек, обновить updatedAt.
 func (p *Product) ChangePrice(newPrice decimal.Decimal, now time.Time) error {
-	if newPrice.Sign() <= 0 {
-		return apperr.Invalid("INVALID_PRICE", "Цена должна быть больше нуля, а не "+newPrice.String())
-	}
-	p.price = newPrice.Round(2)
-	p.updatedAt = now
-	return nil
+	return apperr.Invalid("INVALID_PRICE", "TODO шаг 7: правило смены цены ещё не реализовано")
 }
 
 func (p *Product) Publish(now time.Time) error {

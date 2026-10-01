@@ -36,7 +36,7 @@ func (h *ProductHandler) Routes(r chi.Router) {
 			r.Get("/my", h.listMyProducts)
 			r.Post("/{productId}/publish", h.publishProduct)
 			r.Post("/{productId}/hide", h.hideProduct)
-			r.Patch("/{productId}/price", h.changeProductPrice)
+			// TODO шаг 7: маршрут PATCH /{productId}/price -> h.changeProductPrice
 		})
 	})
 }
@@ -118,27 +118,10 @@ func (h *ProductHandler) hideProduct(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toDTO(product))
 }
 
+// TODO шаг 7: обработчик смены цены - разобрать ChangePriceRequest, отклонить цену не больше нуля
+// кодом VALIDATION_ERROR ещё до ядра, вызвать h.price.Handle, вернуть DTO.
 func (h *ProductHandler) changeProductPrice(w http.ResponseWriter, r *http.Request) {
-	id, ok := productID(w, r)
-	if !ok {
-		return
-	}
-	var req ChangePriceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeProblem(w, r, http.StatusBadRequest, "MALFORMED_REQUEST", "Невозможно разобрать тело запроса")
-		return
-	}
-	if req.Price == nil || req.Price.Sign() <= 0 {
-		writeProblemWithErrors(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Ошибка валидации входных данных", map[string]string{"price": "должна быть больше нуля"})
-		return
-	}
-	principal, _ := security.PrincipalFrom(r.Context())
-	product, err := h.price.Handle(r.Context(), usecase.ChangeProductPrice{ProductID: id, Requester: principal, NewPrice: *req.Price})
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, toDTO(product))
+	writeProblem(w, r, http.StatusNotImplemented, "NOT_IMPLEMENTED", "TODO шаг 7")
 }
 
 func (h *ProductHandler) listMyProducts(w http.ResponseWriter, r *http.Request) {

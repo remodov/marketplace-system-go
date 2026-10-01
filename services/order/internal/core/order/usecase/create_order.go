@@ -35,13 +35,14 @@ type CreateOrderHandler struct {
 	orders  out.OrderRepository
 	catalog out.CatalogGateway
 	keys    out.IdempotencyKeys
+	outbox  out.EventOutbox
 	clock   out.Clock
 	ids     out.IDGenerator
 	uow     out.UnitOfWork
 }
 
-func NewCreateOrderHandler(orders out.OrderRepository, catalog out.CatalogGateway, keys out.IdempotencyKeys, clock out.Clock, ids out.IDGenerator, uow out.UnitOfWork) *CreateOrderHandler {
-	return &CreateOrderHandler{orders: orders, catalog: catalog, keys: keys, clock: clock, ids: ids, uow: uow}
+func NewCreateOrderHandler(orders out.OrderRepository, catalog out.CatalogGateway, keys out.IdempotencyKeys, outbox out.EventOutbox, clock out.Clock, ids out.IDGenerator, uow out.UnitOfWork) *CreateOrderHandler {
+	return &CreateOrderHandler{orders: orders, catalog: catalog, keys: keys, outbox: outbox, clock: clock, ids: ids, uow: uow}
 }
 
 var errKeyTaken = errors.New("ключ идемпотентности занят другим запросом")
@@ -62,6 +63,9 @@ func (h *CreateOrderHandler) Handle(ctx context.Context, cmd CreateOrder) (Creat
 	}
 	err = h.uow.Within(ctx, func(ctx context.Context) error {
 		if err := h.orders.Insert(ctx, order); err != nil {
+			return err
+		}
+		if err := h.outbox.Append(ctx, order.PullEvents()); err != nil {
 			return err
 		}
 		claimed, err := h.keys.Claim(ctx, cmd.IdempotencyKey, cmd.RequestHash, order.ID(), order.CreatedAt())

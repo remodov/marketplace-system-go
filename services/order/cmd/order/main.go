@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,9 @@ func run() error {
 	}
 	defer app.Close()
 
+	var background sync.WaitGroup
+	background.Go(func() { app.Relay.Run(ctx, cfg.OutboxInterval, 10*time.Second) })
+
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: app.Handler, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -41,9 +45,10 @@ func run() error {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-	slog.Info("сервис заказов слушает", "addr", cfg.HTTPAddr, "auth", cfg.AuthMode)
+	slog.Info("сервис заказов слушает", "addr", cfg.HTTPAddr, "auth", cfg.AuthMode, "kafka", cfg.KafkaBrokers)
 	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	background.Wait()
 	return nil
 }

@@ -13,11 +13,13 @@
 |---|---|---|
 | `services/catalog-starter` | карточки товаров, остатки, резерв, поиск | `net/http` + chi, pgx, миграции goose, Redis |
 | `services/catalog` | те же карточки по-взрослому: слои, спецификация, роли, владение, журнал администратора | chi, pgx, goose, golang-jwt, архитектурные тесты |
-| `services/order` | заказы: черновик с ценами из каталога, таймауты, повтор и размыкатель на соседе | chi, pgx, goose, gobreaker |
+| `services/order` | заказы: черновик с ценами из каталога, таймауты, повтор и размыкатель на соседе, идемпотентность, outbox | chi, pgx, goose, gobreaker, kafka-go |
+| `services/notification` | уведомления: потребитель событий заказа с защитой от повторной доставки | kafka-go, pgx, goose |
+| `contracts` | внешний контракт событий заказа: AsyncAPI, схемы и Go-пакет для продюсера и потребителей | AsyncAPI 3 |
 
 Первая часть практикума - учебный каталог и шесть шагов на нём, вторая начинается
-с каталога по-взрослому ([план](docs/practicum/PLAN.md)), дальше идёт сервис заказов. Платежи и
-уведомления появятся следом, по образцу Java-версии.
+с каталога по-взрослому ([план](docs/practicum/PLAN.md)), дальше идут сервис заказов и уведомления.
+Платежи появятся следом, по образцу Java-версии.
 
 ## С чего начинать
 
@@ -33,8 +35,9 @@ docker compose -f infra/compose.yaml ps
 
 | что | порт | зачем |
 |---|---|---|
-| PostgreSQL | 5440 | базы `catalog_starter`, `catalog` и `orders` плюс тестовые `catalog_starter_test`, `catalog_test` и `orders_test` |
+| PostgreSQL | 5440 | базы `catalog_starter`, `catalog`, `orders` и `notifications` плюс тестовые `*_test` |
 | Redis | 6381 | кэш карточек, шаг 6 |
+| Kafka | 9094 | события заказа из outbox, шаг 10 |
 
 ## Как устроен шаг
 

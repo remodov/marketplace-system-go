@@ -4,14 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	ordersv1 "github.com/remodov/marketplace-system-go/contracts/orders/v1"
 	httpadapter "github.com/remodov/marketplace-system-go/services/order/internal/adapter/in/http"
 	"github.com/remodov/marketplace-system-go/services/order/internal/adapter/out/catalog"
+	kafkaadapter "github.com/remodov/marketplace-system-go/services/order/internal/adapter/out/kafka"
 	"github.com/remodov/marketplace-system-go/services/order/internal/adapter/out/persistence"
 	"github.com/remodov/marketplace-system-go/services/order/internal/adapter/out/persistence/migrations"
 	"github.com/remodov/marketplace-system-go/services/order/internal/adapter/out/system"
@@ -21,16 +24,21 @@ import (
 )
 
 type App struct {
-	Handler http.Handler
-	Pool    *pgxpool.Pool
+	Handler   http.Handler
+	Pool      *pgxpool.Pool
+	Relay     *usecase.OutboxRelay
+	publisher out.ExternalEventPublisher
 }
 
 type Deps struct {
-	Clock   out.Clock
-	IDs     out.IDGenerator
-	Auth    httpadapter.Authenticator
-	Catalog out.CatalogGateway
+	Clock     out.Clock
+	IDs       out.IDGenerator
+	Auth      httpadapter.Authenticator
+	Catalog   out.CatalogGateway
+	Publisher out.ExternalEventPublisher
 }
+
+const outboxBatchSize = 100
 
 func CatalogSettings(baseURL string) catalog.Settings {
 	return catalog.Settings{
@@ -74,16 +82,28 @@ func Build(ctx context.Context, cfg Config, deps Deps) (*App, error) {
 			return nil, err
 		}
 	}
+	if deps.Publisher == nil {
+		deps.Publisher = publisher(cfg)
+	}
 
 	orders := persistence.NewOrderRepository(pool)
 	keys := persistence.NewIdempotencyKeys(pool)
+	outbox := persistence.NewOutbox(pool, deps.IDs)
 	uow := persistence.NewUnitOfWork(pool)
 
-	create := usecase.NewCreateOrderHandler(orders, deps.Catalog, keys, deps.Clock, deps.IDs, uow)
+	create := usecase.NewCreateOrderHandler(orders, deps.Catalog, keys, outbox, deps.Clock, deps.IDs, uow)
 	queries := query.NewHandler(orders)
+	relay := usecase.NewOutboxRelay(outbox, deps.Publisher, deps.Clock, uow, outboxBatchSize)
 
 	handler := httpadapter.NewRouter(deps.Auth, httpadapter.NewOrderHandler(create, queries), pool)
-	return &App{Handler: handler, Pool: pool}, nil
+	return &App{Handler: handler, Pool: pool, Relay: relay, publisher: deps.Publisher}, nil
+}
+
+func publisher(cfg Config) out.ExternalEventPublisher {
+	if brokers := cfg.Brokers(); len(brokers) > 0 {
+		return kafkaadapter.NewPublisher(brokers, ordersv1.Topic)
+	}
+	return system.LogPublisher{}
 }
 
 func authenticator(ctx context.Context, cfg Config) (httpadapter.Authenticator, error) {
@@ -94,5 +114,8 @@ func authenticator(ctx context.Context, cfg Config) (httpadapter.Authenticator, 
 }
 
 func (a *App) Close() {
+	if closer, ok := a.publisher.(io.Closer); ok {
+		_ = closer.Close()
+	}
 	a.Pool.Close()
 }

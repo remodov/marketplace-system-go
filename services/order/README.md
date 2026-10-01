@@ -6,7 +6,7 @@ Order Service из сквозного маркетплейс-кейса сайт
 
 **Уровень 3** методологии Use Case Pattern: агрегат `Order` с позициями и правилами внутри, команда и
 обработчик сценария с явными портами, выходной адаптер к каталогу с таймаутами, повтором и размыкателем.
-С девятого шага создание заказа идемпотентно по заголовку `Idempotency-Key`. Статусная модель, outbox и сага появляются на следующих шагах.
+С девятого шага создание заказа идемпотентно по заголовку `Idempotency-Key`, с десятого событие `OrderCreated` уезжает соседям через outbox и Kafka по внешнему контракту из [`contracts/`](../../contracts/). Статусная модель и сага появляются на следующих шагах.
 
 Спецификация в [`docs/spec/`](docs/spec/), контракт REST в [`docs/order.openapi.yaml`](docs/order.openapi.yaml).
 
@@ -19,14 +19,15 @@ internal/
   core/
     security/                           Principal из токена, роли
     order/
-      aggregate/                        Order и Item: поля закрыты, правила в методах, Money и Address
+      aggregate/                        Order и Item: поля закрыты, правила в методах, Money и Address, события
       port/out/                         интерфейсы: репозиторий, шлюз каталога, часы, идентификаторы, единица работы
-      usecase/                          команда CreateOrder и её обработчик: ключ идемпотентности, цены, транзакция
+      usecase/                          команда CreateOrder и её обработчик; relay outbox как фоновый сценарий
       query/                            чтение заказа с проверкой владения
   adapter/
     in/http/                            chi, Problem Details, роли в middleware, DTO
     out/catalog/                        HTTP-клиент каталога: таймауты, повтор, размыкатель gobreaker
-    out/persistence/                    pgx, миграции goose, транзакция в контексте, ключи идемпотентности
+    out/persistence/                    pgx, миграции goose, транзакция в контексте, ключи идемпотентности, outbox
+    out/kafka/                          издатель событий на kafka-go: ключ, заголовки, acks=all
     out/system/                         системные часы и uuid
   bootstrap/                            composition root, настройки клиента каталога, тесты
 ```
@@ -44,7 +45,8 @@ go run ./cmd/order
 ```
 
 Переменные: `HTTP_ADDR` (`:8084`), `DATABASE_URL` (`postgres://catalog:catalog@localhost:5440/orders`),
-`CATALOG_BASE_URL` (`http://localhost:8083`), `AUTH_MODE` (`local` или `jwt`), для `jwt` ещё `JWKS_URL`,
+`CATALOG_BASE_URL` (`http://localhost:8083`), `KAFKA_BROKERS` (`localhost:9094`, пусто - события только в лог),
+`OUTBOX_INTERVAL` (`1s`), `AUTH_MODE` (`local` или `jwt`), для `jwt` ещё `JWKS_URL`,
 `JWT_ISSUER`, `JWT_AUDIENCE`.
 
 В режиме `local` токен это строка `role.uuid`, роли `customer`, `seller`, `admin`:
@@ -85,13 +87,28 @@ curl -s -X POST localhost:8084/api/v1/orders -H "Authorization: Bearer customer.
 `TestIdempotency_sameKeyAtOnce_createsOneOrder` шлёт восемь одинаковых запросов разом и ждёт один заказ.
 Хеш тела считается в HTTP-адаптере по каноническому JSON разобранного запроса, в ядро доезжает уже строкой.
 
+## Событие уезжает через outbox
+
+Агрегат при создании регистрирует `OrderCreated`; обработчик сценария кладёт события в таблицу `outbox` в той же
+транзакции, что заказ и ключ идемпотентности. Фоновая горутина relay (`usecase.OutboxRelay.Run`) раз в
+`OUTBOX_INTERVAL` берёт пачку строк с `published_at IS NULL` под `FOR UPDATE SKIP LOCKED`, публикует каждую через
+порт `ExternalEventPublisher` и помечает отправленной в той же транзакции; упал брокер - транзакция откатилась,
+строки остались, следующий круг повторит. Остановка сервиса ждёт конца текущей пачки, а не рвёт её.
+
+Payload строки это внешний контракт, а не дамп внутреннего типа: `persistence.payloadOf` собирает
+`ordersv1.OrderCreatedPayload` из пакета [`contracts/orders/v1`](../../contracts/orders/v1/events.go) - `customerId`
+строкой, сумма десятичной строкой, ничего лишнего. Издатель `adapter/out/kafka` пишет в топик `marketplace.orders.v1`
+с ключом `aggregateId` и заголовками `event-id`, `event-type`, `event-version`, `aggregate-type`, `aggregate-id`,
+`occurred-at`; по `event-id` потребитель отбрасывает повторную доставку.
+
 ## Тесты
 
 ```bash
 go test ./...
 ```
 
-Интеграционные тесты идут на настоящей PostgreSQL (`orders_test` из compose). Каталог в тестах подменяется
+Интеграционные тесты идут на настоящей PostgreSQL (`orders_test` из compose); `TestKafkaPublisher_*` ждёт Kafka со стенда
+и пропускается, если брокер не поднят. Каталог в тестах подменяется
 `httptest.Server`, который умеет держать ответ, рвать соединение и отвечать 404: четыре проверки
 `TestCatalog_*` закрывают повтор, лежащий каталог, таймаут и размыкатель.
 
@@ -108,3 +125,5 @@ go test ./...
 - [Монолит и микросервисы](https://vikulin-va.ru/architecture-choice/monolith-vs-microservices/): цена сетевого вызова к соседу.
 - [Гексагональная архитектура на Go](https://vikulin-va.ru/patterns/hexagonal/go/core-layer/): почему каталог для ядра - интерфейс.
 - [HTTP-заголовки и Idempotency-Key на Go](https://vikulin-va.ru/rest-api/go/headers/): ключ занимается до операции.
+- [Распределённые паттерны на Go](https://vikulin-va.ru/patterns/go/distributed-patterns/): outbox и идемпотентный потребитель.
+- [Фоновые горутины и outbox-relay при остановке](https://vikulin-va.ru/graceful-shutdown/go/scheduled-async-outbox/).

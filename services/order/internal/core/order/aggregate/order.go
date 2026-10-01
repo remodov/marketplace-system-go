@@ -95,6 +95,7 @@ type Order struct {
 	address     Address
 	createdAt   time.Time
 	updatedAt   time.Time
+	events      []Event
 }
 
 func New(id, customerID uuid.UUID, items []Item, address Address, now time.Time) (*Order, error) {
@@ -112,11 +113,15 @@ func New(id, customerID uuid.UUID, items []Item, address Address, now time.Time)
 		}
 		seen[item.productID] = true
 	}
-	return &Order{
+	order := &Order{
 		id: id, customerID: customerID, sellerID: seller, status: StatusDraft,
 		items: slices.Clone(items), shippingFee: RUB(decimal.Zero), address: address,
 		createdAt: now, updatedAt: now,
-	}, nil
+	}
+	order.events = append(order.events, OrderCreated{
+		OrderID: id, CustomerID: customerID, SellerID: seller, Total: order.Total(), Items: snapshotsOf(items), At: now,
+	})
+	return order, nil
 }
 
 func Restore(id, customerID, sellerID uuid.UUID, status Status, items []Item, shippingFee Money, address Address, createdAt, updatedAt time.Time) *Order {
@@ -146,3 +151,9 @@ func (o *Order) Total() Money {
 }
 
 func (o *Order) OwnedBy(customerID uuid.UUID) bool { return o.customerID == customerID }
+
+func (o *Order) PullEvents() []Event {
+	events := o.events
+	o.events = nil
+	return events
+}

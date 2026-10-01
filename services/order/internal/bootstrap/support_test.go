@@ -52,13 +52,79 @@ func TestMain(m *testing.M) {
 
 func newApp(t *testing.T, gateway out.CatalogGateway) http.Handler {
 	t.Helper()
+	return newAppWith(t, gateway, &recordingPublisher{}).Handler
+}
+
+func newAppWith(t *testing.T, gateway out.CatalogGateway, publisher out.ExternalEventPublisher) *bootstrap.App {
+	t.Helper()
 	app, err := bootstrap.Build(context.Background(), bootstrap.Config{DatabaseURL: databaseURL, AuthMode: "local"},
-		bootstrap.Deps{Clock: fixedClock{}, Catalog: gateway})
+		bootstrap.Deps{Clock: fixedClock{}, Catalog: gateway, Publisher: publisher})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Close)
-	return app.Handler
+	return app
+}
+
+type recordingPublisher struct {
+	mu       sync.Mutex
+	messages []out.OutboxMessage
+	fail     error
+}
+
+func (p *recordingPublisher) Publish(_ context.Context, m out.OutboxMessage) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.fail != nil {
+		return p.fail
+	}
+	p.messages = append(p.messages, m)
+	return nil
+}
+
+func (p *recordingPublisher) Published() []out.OutboxMessage {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]out.OutboxMessage(nil), p.messages...)
+}
+
+type outboxRow struct {
+	ID          uuid.UUID
+	AggregateID uuid.UUID
+	EventType   string
+	Payload     string
+	Published   bool
+}
+
+func outboxRows(t *testing.T) []outboxRow {
+	t.Helper()
+	rows, err := pool.Query(context.Background(),
+		"SELECT id, aggregate_id, event_type, payload::text, published_at IS NOT NULL FROM outbox ORDER BY occurred_at, id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var result []outboxRow
+	for rows.Next() {
+		var r outboxRow
+		if err := rows.Scan(&r.ID, &r.AggregateID, &r.EventType, &r.Payload, &r.Published); err != nil {
+			t.Fatal(err)
+		}
+		result = append(result, r)
+	}
+	return result
+}
+
+func givenOutboxRow(t *testing.T, eventType, payload string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO outbox (id, aggregate_id, aggregate_type, event_type, event_version, payload, occurred_at)
+		 VALUES ($1, $2, 'Order', $3, 1, $4::jsonb, $5)`, id, uuid.New(), eventType, payload, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func testSettings(baseURL string) catalog.Settings {
@@ -69,7 +135,7 @@ func testSettings(baseURL string) catalog.Settings {
 
 func clearTables(t *testing.T) {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), "TRUNCATE idempotency_keys, order_items, orders"); err != nil {
+	if _, err := pool.Exec(context.Background(), "TRUNCATE outbox, idempotency_keys, order_items, orders"); err != nil {
 		t.Fatal(err)
 	}
 }

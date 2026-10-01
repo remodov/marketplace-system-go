@@ -139,3 +139,20 @@
 
 **Проверка:** повтор не создаёт второй заказ и возвращает тот же ответ, другой текст под тем
 же ключом даёт 409, восемь одновременных запросов дают один заказ.
+
+## Шаг 10. События, outbox и контракт
+
+**Материал:** [/kafka/go/fundamentals/](https://vikulin-va.ru/kafka/go/fundamentals/) · [/patterns/go/distributed-patterns/](https://vikulin-va.ru/patterns/go/distributed-patterns/) · [/graceful-shutdown/go/scheduled-async-outbox/](https://vikulin-va.ru/graceful-shutdown/go/scheduled-async-outbox/) · [/kafka/go/production-essentials/](https://vikulin-va.ru/kafka/go/production-essentials/)
+
+**Даётся:** таблица `outbox`, агрегат, который регистрирует `OrderCreated`, издатель на kafka-go, Kafka в
+стенде, контракт событий в `contracts/` (AsyncAPI плюс Go-пакет `ordersv1`) и сервис `notification`
+с консьюмером и журналом `processed_events`.
+
+**Ученик:** пишет событие в outbox в одной транзакции с заказом, собирает payload по внешнему
+контракту, а не из внутреннего типа, и делает relay: пачка под `FOR UPDATE SKIP LOCKED`,
+публикация, пометка отправленного в той же транзакции. Разбирается, почему `customerId`
+вложенным объектом ломает потребителя.
+
+**Проверка:** строка outbox рождается вместе с заказом и не рождается при откате; поля payload
+ровно те, что в контракте; relay публикует и помечает, при лежащем брокере строка остаётся;
+повторная доставка в `notification` не создаёт второе уведомление.

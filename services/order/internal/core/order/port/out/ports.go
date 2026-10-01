@@ -34,3 +34,23 @@ type IdempotencyKeys interface {
 	Find(ctx context.Context, key, requestHash string) (orderID uuid.UUID, found bool, err error)
 	Claim(ctx context.Context, key, requestHash string, orderID uuid.UUID, now time.Time) (claimed bool, err error)
 }
+
+type OutboxMessage struct {
+	ID            uuid.UUID
+	AggregateType string
+	AggregateID   uuid.UUID
+	EventType     string
+	EventVersion  int
+	Payload       []byte
+	OccurredAt    time.Time
+}
+
+type EventOutbox interface {
+	Append(ctx context.Context, events []aggregate.Event) error
+	Unpublished(ctx context.Context, limit int) ([]OutboxMessage, error)
+	MarkPublished(ctx context.Context, id uuid.UUID, at time.Time) error
+}
+
+type ExternalEventPublisher interface {
+	Publish(ctx context.Context, message OutboxMessage) error
+}

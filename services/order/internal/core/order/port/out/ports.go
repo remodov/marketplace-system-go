@@ -12,6 +12,17 @@ import (
 type OrderRepository interface {
 	Insert(ctx context.Context, order *aggregate.Order) error
 	ByID(ctx context.Context, id uuid.UUID) (*aggregate.Order, error)
+	ByIDForUpdate(ctx context.Context, id uuid.UUID) (*aggregate.Order, error)
+	Update(ctx context.Context, order *aggregate.Order) error
+	PendingPaymentBefore(ctx context.Context, before time.Time, limit int) ([]uuid.UUID, error)
+}
+
+type PaymentGateway interface {
+	RequestRefund(ctx context.Context, orderID, paymentID uuid.UUID, amount aggregate.Money, idempotencyKey string) (uuid.UUID, error)
+}
+
+type ProcessedEvents interface {
+	MarkProcessed(ctx context.Context, eventID uuid.UUID, eventType string, now time.Time) (bool, error)
 }
 
 type CatalogGateway interface {

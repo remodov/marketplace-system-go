@@ -6,7 +6,7 @@ Order Service из сквозного маркетплейс-кейса сайт
 
 **Уровень 3** методологии Use Case Pattern: агрегат `Order` с позициями и правилами внутри, команда и
 обработчик сценария с явными портами, выходной адаптер к каталогу с таймаутами, повтором и размыкателем.
-С девятого шага создание заказа идемпотентно по заголовку `Idempotency-Key`, с десятого событие `OrderCreated` уезжает соседям через outbox и Kafka по внешнему контракту из [`contracts/`](../../contracts/). Статусная модель и сага появляются на следующих шагах.
+С девятого шага создание заказа идемпотентно по заголовку `Idempotency-Key`, с десятого события уезжают соседям через outbox и Kafka по внешнему контракту из [`contracts/`](../../contracts/), с одиннадцатого заказ живёт по статусной модели, а отмена оплаченного заказа идёт сагой с возвратом денег через `payment`.
 
 Спецификация в [`docs/spec/`](docs/spec/), контракт REST в [`docs/order.openapi.yaml`](docs/order.openapi.yaml).
 
@@ -19,15 +19,17 @@ internal/
   core/
     security/                           Principal из токена, роли
     order/
-      aggregate/                        Order и Item: поля закрыты, правила в методах, Money и Address, события
+      aggregate/                        Order и Item: поля закрыты, переходы статусов в методах, события
       port/out/                         интерфейсы: репозиторий, шлюз каталога, часы, идентификаторы, единица работы
-      usecase/                          команда CreateOrder и её обработчик; relay outbox как фоновый сценарий
+      usecase/                          CreateOrder, переходы статусов (LifecycleHandler), relay outbox, просрочка оплаты
       query/                            чтение заказа с проверкой владения
   adapter/
     in/http/                            chi, Problem Details, роли в middleware, DTO
+    in/kafka/                           потребитель PaymentCompleted: processed_events и перевод в PAID одной транзакцией
     out/catalog/                        HTTP-клиент каталога: таймауты, повтор, размыкатель gobreaker
     out/persistence/                    pgx, миграции goose, транзакция в контексте, ключи идемпотентности, outbox
     out/kafka/                          издатель событий на kafka-go: ключ, заголовки, acks=all
+    out/payment/                        HTTP-клиент возврата в сервис платежей с Idempotency-Key
     out/system/                         системные часы и uuid
   bootstrap/                            composition root, настройки клиента каталога, тесты
 ```
@@ -45,8 +47,9 @@ go run ./cmd/order
 ```
 
 Переменные: `HTTP_ADDR` (`:8084`), `DATABASE_URL` (`postgres://catalog:catalog@localhost:5440/orders`),
-`CATALOG_BASE_URL` (`http://localhost:8083`), `KAFKA_BROKERS` (`localhost:9094`, пусто - события только в лог),
-`OUTBOX_INTERVAL` (`1s`), `AUTH_MODE` (`local` или `jwt`), для `jwt` ещё `JWKS_URL`,
+`CATALOG_BASE_URL` (`http://localhost:8083`), `PAYMENT_BASE_URL` (`http://localhost:8086`), `KAFKA_BROKERS` (`localhost:9094`,
+пусто - события только в лог), `KAFKA_GROUP` (`order`), `OUTBOX_INTERVAL` (`1s`), `EXPIRE_UNPAID_AFTER` (`15m`),
+`EXPIRE_INTERVAL` (`1m`), `AUTH_MODE` (`local` или `jwt`), для `jwt` ещё `JWKS_URL`,
 `JWT_ISSUER`, `JWT_AUDIENCE`.
 
 В режиме `local` токен это строка `role.uuid`, роли `customer`, `seller`, `admin`:
@@ -101,6 +104,25 @@ Payload строки это внешний контракт, а не дамп в
 с ключом `aggregateId` и заголовками `event-id`, `event-type`, `event-version`, `aggregate-type`, `aggregate-id`,
 `occurred-at`; по `event-id` потребитель отбрасывает повторную доставку.
 
+## Статусы и сага отмены
+
+Переходы живут в агрегате и перечисляют разрешённое: `Confirm` DRAFT -> PENDING_PAYMENT (не меньше 100 рублей,
+иначе `ORDER_BELOW_MINIMUM`), `MarkPaid` -> PAID, `MarkShipped` -> SHIPPED, `ConfirmDelivery` -> DELIVERED, `Cancel`
+из DRAFT и PENDING_PAYMENT, `CancelAfterPayment` из PAID, `Expire` из PENDING_PAYMENT. Всё остальное отвечает
+`409 ORDER_INVALID_STATE` и данные не трогает. Каждый переход - одна транзакция: строка под `FOR UPDATE`, метод
+агрегата, `UPDATE`, события в outbox.
+
+Ручки: `POST /api/v1/orders/{id}/confirm`, `/cancel` (покупатель или администратор), `/ship` (продавец заказа),
+`/deliver` (покупатель), `/pay` (только администратор, для стенда; в бою оплату приносит событие `PaymentCompleted`
+из топика `marketplace.payments.v1`, потребитель отбрасывает повтор по `event-id` через `processed_events`).
+
+Отмена оплаченного заказа - сага с компенсацией: обработчик внутри транзакции зовёт сервис платежей
+`POST /api/v1/payments/{paymentId}/refund` с `Idempotency-Key: refund-<orderId>`, и только после успешного возврата
+переводит заказ в CANCELLED с `refundId` в событии `OrderCancelled`. Платежи легли - `503 SERVICE_DEGRADED`,
+транзакция откатилась, заказ остался PAID, повтор отмены безопасен: платежи повторный возврат не считают вторым.
+Неоплаченный заказ закрывает фоновая горутина `ExpireUnpaid`: раз в `EXPIRE_INTERVAL` переводит в EXPIRED те,
+что висят в PENDING_PAYMENT дольше `EXPIRE_UNPAID_AFTER`.
+
 ## Тесты
 
 ```bash
@@ -110,13 +132,15 @@ go test ./...
 Интеграционные тесты идут на настоящей PostgreSQL (`orders_test` из compose); `TestKafkaPublisher_*` ждёт Kafka со стенда
 и пропускается, если брокер не поднят. Каталог в тестах подменяется
 `httptest.Server`, который умеет держать ответ, рвать соединение и отвечать 404: четыре проверки
-`TestCatalog_*` закрывают повтор, лежащий каталог, таймаут и размыкатель.
+`TestCatalog_*` закрывают повтор, лежащий каталог, таймаут и размыкатель; `TestLifecycle_*` проходят заказ от черновика
+до получения, отмену с возвратом через подменный сервис платежей и просрочку оплаты на подкручиваемых часах.
 
 ## Коды ошибок
 
 `VALIDATION_ERROR`, `MALFORMED_REQUEST`, `EMPTY_ORDER`, `MULTI_SELLER_NOT_SUPPORTED` (400), `TOKEN_MISSING`,
 `TOKEN_INVALID` (401), `ACCESS_DENIED` (403), `PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND` (404),
-`IDEMPOTENCY_KEY_CONFLICT` (409), `SERVICE_DEGRADED` (503). Тело ошибки в формате Problem Details, `type` вида `urn:problem:order:<CODE>`.
+`IDEMPOTENCY_KEY_CONFLICT`, `ORDER_INVALID_STATE`, `REFUND_REJECTED`, `PAYMENT_NOT_FOUND` (409), `ORDER_BELOW_MINIMUM` (400),
+`SERVICE_DEGRADED` (503). Тело ошибки в формате Problem Details, `type` вида `urn:problem:order:<CODE>`.
 
 ## Что почитать
 

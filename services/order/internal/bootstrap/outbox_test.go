@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -88,8 +89,8 @@ func TestOutboxRelay_publishesAndMarksRows(t *testing.T) {
 	fake := startCatalog(t, func(_ int, w http.ResponseWriter, r *http.Request) { answerPrice(w, r, "100.00") })
 	publisher := &recordingPublisher{}
 	app := newAppWith(t, catalog.New(testSettings(fake.URL)), publisher)
-	first := givenOutboxRow(t, ordersv1.EventOrderCreated, `{"orderId":"a"}`)
-	second := givenOutboxRow(t, ordersv1.EventOrderConfirmed, `{"orderId":"b"}`)
+	first := givenOutboxRow(t, ordersv1.EventOrderCreated, `{"orderId":"a"}`, now)
+	second := givenOutboxRow(t, ordersv1.EventOrderConfirmed, `{"orderId":"b"}`, now.Add(time.Second))
 
 	published, err := app.Relay.Once(context.Background())
 	if err != nil || published != 2 {
@@ -119,7 +120,7 @@ func TestOutboxRelay_keepsRowWhenBrokerFails(t *testing.T) {
 	fake := startCatalog(t, func(_ int, w http.ResponseWriter, r *http.Request) { answerPrice(w, r, "100.00") })
 	publisher := &recordingPublisher{fail: errors.New("брокер лежит")}
 	app := newAppWith(t, catalog.New(testSettings(fake.URL)), publisher)
-	givenOutboxRow(t, ordersv1.EventOrderCreated, `{"orderId":"a"}`)
+	givenOutboxRow(t, ordersv1.EventOrderCreated, `{"orderId":"a"}`, now)
 
 	published, err := app.Relay.Once(context.Background())
 

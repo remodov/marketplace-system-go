@@ -64,17 +64,59 @@ func (r *PgOrderRepository) Insert(ctx context.Context, order *aggregate.Order) 
 }
 
 func (r *PgOrderRepository) ByID(ctx context.Context, id uuid.UUID) (*aggregate.Order, error) {
+	return r.selectOne(ctx, id, "")
+}
+
+func (r *PgOrderRepository) ByIDForUpdate(ctx context.Context, id uuid.UUID) (*aggregate.Order, error) {
+	return r.selectOne(ctx, id, " FOR UPDATE")
+}
+
+func (r *PgOrderRepository) Update(ctx context.Context, order *aggregate.Order) error {
+	state := order.Lifecycle()
+	_, err := db(ctx, r.pool).Exec(ctx,
+		`UPDATE orders SET status = $2::order_status, updated_at = $3, payment_id = $4, paid_at = $5,
+		        shipped_at = $6, delivered_at = $7, closed_at = $8
+		 WHERE id = $1`,
+		order.ID(), string(order.Status()), order.UpdatedAt(), state.PaymentID, state.PaidAt, state.ShippedAt, state.DeliveredAt, state.ClosedAt)
+	if err != nil {
+		return fmt.Errorf("orders update: %w", err)
+	}
+	return nil
+}
+
+func (r *PgOrderRepository) PendingPaymentBefore(ctx context.Context, before time.Time, limit int) ([]uuid.UUID, error) {
+	rows, err := db(ctx, r.pool).Query(ctx,
+		`SELECT id FROM orders WHERE status = 'PENDING_PAYMENT' AND updated_at < $1 ORDER BY updated_at LIMIT $2`, before, limit)
+	if err != nil {
+		return nil, fmt.Errorf("orders select pending: %w", err)
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (r *PgOrderRepository) selectOne(ctx context.Context, id uuid.UUID, locking string) (*aggregate.Order, error) {
 	q := db(ctx, r.pool)
 	var (
 		customerID, sellerID uuid.UUID
 		status, currency     string
 		shippingFee, address string
 		createdAt, updatedAt time.Time
+		state                aggregate.LifecycleState
 	)
 	err := q.QueryRow(ctx,
-		`SELECT customer_id, seller_id, status::text, currency, shipping_fee::text, shipping_address::text, created_at, updated_at
-		 FROM orders WHERE id = $1`, id).
-		Scan(&customerID, &sellerID, &status, &currency, &shippingFee, &address, &createdAt, &updatedAt)
+		`SELECT customer_id, seller_id, status::text, currency, shipping_fee::text, shipping_address::text, created_at, updated_at,
+		        payment_id, paid_at, shipped_at, delivered_at, closed_at
+		 FROM orders WHERE id = $1`+locking, id).
+		Scan(&customerID, &sellerID, &status, &currency, &shippingFee, &address, &createdAt, &updatedAt,
+			&state.PaymentID, &state.PaidAt, &state.ShippedAt, &state.DeliveredAt, &state.ClosedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("ORDER_NOT_FOUND", "Заказ не найден")
 	}
@@ -96,7 +138,7 @@ func (r *PgOrderRepository) ByID(ctx context.Context, id uuid.UUID) (*aggregate.
 	return aggregate.Restore(id, customerID, sellerID, aggregate.Status(status), items,
 		aggregate.Money{Amount: fee, Currency: currency},
 		aggregate.Address{Country: a.Country, City: a.City, Street: a.Street, PostalCode: a.PostalCode, PickupPoint: a.PickupPoint},
-		createdAt, updatedAt), nil
+		createdAt, updatedAt, state), nil
 }
 
 func (r *PgOrderRepository) itemsOf(ctx context.Context, orderID uuid.UUID, currency string) ([]aggregate.Item, error) {

@@ -18,20 +18,126 @@ import (
 )
 
 type OrderHandler struct {
-	create  *usecase.CreateOrderHandler
-	queries *query.Handler
+	create    *usecase.CreateOrderHandler
+	lifecycle *usecase.LifecycleHandler
+	queries   *query.Handler
 }
 
-func NewOrderHandler(create *usecase.CreateOrderHandler, queries *query.Handler) *OrderHandler {
-	return &OrderHandler{create: create, queries: queries}
+func NewOrderHandler(create *usecase.CreateOrderHandler, lifecycle *usecase.LifecycleHandler, queries *query.Handler) *OrderHandler {
+	return &OrderHandler{create: create, lifecycle: lifecycle, queries: queries}
 }
 
 func (h *OrderHandler) Routes(r chi.Router) {
 	r.Route("/api/v1/orders", func(r chi.Router) {
-		r.Use(RequireRoles(security.RoleCustomer, security.RoleAdmin))
-		r.Post("/", h.createOrder)
-		r.Get("/{orderId}", h.getOrder)
+		r.Group(func(r chi.Router) {
+			r.Use(RequireRoles(security.RoleCustomer, security.RoleAdmin))
+			r.Post("/", h.createOrder)
+			r.Get("/{orderId}", h.getOrder)
+			r.Post("/{orderId}/confirm", h.confirmOrder)
+			r.Post("/{orderId}/cancel", h.cancelOrder)
+			r.Post("/{orderId}/deliver", h.confirmDelivery)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(RequireRoles(security.RoleSeller, security.RoleAdmin))
+			r.Post("/{orderId}/ship", h.shipOrder)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(RequireRoles(security.RoleAdmin))
+			r.Post("/{orderId}/pay", h.payOrder)
+		})
 	})
+}
+
+func (h *OrderHandler) confirmOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := orderID(w, r)
+	if !ok {
+		return
+	}
+	principal, _ := security.PrincipalFrom(r.Context())
+	h.respond(w, r, func() (*aggregate.Order, error) {
+		return h.lifecycle.Confirm(r.Context(), usecase.ConfirmOrder{OrderID: id, Requester: principal})
+	})
+}
+
+func (h *OrderHandler) cancelOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := orderID(w, r)
+	if !ok {
+		return
+	}
+	var req CancelOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "MALFORMED_REQUEST", "Невозможно разобрать тело запроса")
+		return
+	}
+	reason, err := aggregate.NewCancellationReason(req.ReasonCode, req.Comment)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	principal, _ := security.PrincipalFrom(r.Context())
+	h.respond(w, r, func() (*aggregate.Order, error) {
+		return h.lifecycle.Cancel(r.Context(), usecase.CancelOrder{OrderID: id, Requester: principal, Reason: reason})
+	})
+}
+
+func (h *OrderHandler) shipOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := orderID(w, r)
+	if !ok {
+		return
+	}
+	var req ShipOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "MALFORMED_REQUEST", "Невозможно разобрать тело запроса")
+		return
+	}
+	principal, _ := security.PrincipalFrom(r.Context())
+	h.respond(w, r, func() (*aggregate.Order, error) {
+		return h.lifecycle.Ship(r.Context(), usecase.MarkShipped{OrderID: id, Seller: principal, TrackingNumber: req.TrackingNumber})
+	})
+}
+
+func (h *OrderHandler) confirmDelivery(w http.ResponseWriter, r *http.Request) {
+	id, ok := orderID(w, r)
+	if !ok {
+		return
+	}
+	principal, _ := security.PrincipalFrom(r.Context())
+	h.respond(w, r, func() (*aggregate.Order, error) {
+		return h.lifecycle.Deliver(r.Context(), usecase.ConfirmDelivery{OrderID: id, Requester: principal})
+	})
+}
+
+func (h *OrderHandler) payOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := orderID(w, r)
+	if !ok {
+		return
+	}
+	var req PayOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PaymentID == nil {
+		writeProblemWithErrors(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Ошибка валидации входных данных", map[string]string{"paymentId": "обязательное поле"})
+		return
+	}
+	h.respond(w, r, func() (*aggregate.Order, error) {
+		return h.lifecycle.Pay(r.Context(), usecase.PayOrder{OrderID: id, PaymentID: *req.PaymentID})
+	})
+}
+
+func (h *OrderHandler) respond(w http.ResponseWriter, r *http.Request, result func() (*aggregate.Order, error)) {
+	order, err := result()
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toDTO(order))
+}
+
+func orderID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "orderId"))
+	if err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Идентификатор заказа должен быть UUID")
+		return uuid.Nil, false
+	}
+	return id, true
 }
 
 func (h *OrderHandler) createOrder(w http.ResponseWriter, r *http.Request) {
@@ -76,18 +182,14 @@ func requestHash(req CreateOrderRequest) string {
 }
 
 func (h *OrderHandler) getOrder(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(chi.URLParam(r, "orderId"))
-	if err != nil {
-		writeProblem(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Идентификатор заказа должен быть UUID")
+	id, ok := orderID(w, r)
+	if !ok {
 		return
 	}
 	principal, _ := security.PrincipalFrom(r.Context())
-	order, err := h.queries.GetOrder(r.Context(), query.GetOrder{OrderID: id, Requester: principal})
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, toDTO(order))
+	h.respond(w, r, func() (*aggregate.Order, error) {
+		return h.queries.GetOrder(r.Context(), query.GetOrder{OrderID: id, Requester: principal})
+	})
 }
 
 func validateLines(items []OrderItemRequest) ([]usecase.OrderLine, map[string]string) {

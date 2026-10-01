@@ -83,11 +83,34 @@ func payloadOf(event aggregate.Event) ([]byte, error) {
 	switch e := event.(type) {
 	case aggregate.OrderCreated:
 		return json.Marshal(ordersv1.OrderCreatedPayload{
-			OrderEventBase: ordersv1.OrderEventBase{OrderID: e.OrderID, CustomerID: e.CustomerID, SellerID: e.SellerID, OccurredAt: e.At},
-			TotalAmount:    e.Total.Amount.StringFixed(2),
-			Currency:       e.Total.Currency,
-			ItemsCount:     len(e.Items),
+			OrderEventBase: base(e.OrderID, e.CustomerID, e.SellerID, e.At),
+			TotalAmount:    e.Total.Amount.StringFixed(2), Currency: e.Total.Currency, ItemsCount: len(e.Items),
 		})
+	case aggregate.OrderConfirmed:
+		return json.Marshal(ordersv1.OrderConfirmedPayload{
+			OrderEventBase: base(e.OrderID, e.CustomerID, e.SellerID, e.At),
+			TotalAmount:    e.Total.Amount.StringFixed(2), Currency: e.Total.Currency,
+		})
+	case aggregate.OrderPaid:
+		return json.Marshal(ordersv1.OrderPaidPayload{
+			OrderEventBase: base(e.OrderID, e.CustomerID, e.SellerID, e.At),
+			TotalAmount:    e.Total.Amount.StringFixed(2), Currency: e.Total.Currency, PaymentID: e.PaymentID,
+		})
+	case aggregate.OrderCancelled:
+		return json.Marshal(ordersv1.OrderCancelledPayload{
+			OrderEventBase: base(e.OrderID, e.CustomerID, e.SellerID, e.At),
+			PreviousStatus: string(e.PreviousStatus), Reason: e.Reason.Code, RefundID: e.RefundID,
+		})
+	case aggregate.OrderExpired:
+		return json.Marshal(ordersv1.OrderExpiredPayload{OrderEventBase: base(e.OrderID, e.CustomerID, e.SellerID, e.At)})
+	case aggregate.OrderShipped:
+		return json.Marshal(ordersv1.OrderShippedPayload{OrderEventBase: base(e.OrderID, e.CustomerID, e.SellerID, e.At), TrackingNumber: e.TrackingNumber})
+	case aggregate.OrderDelivered:
+		return json.Marshal(ordersv1.OrderDeliveredPayload{OrderEventBase: base(e.OrderID, e.CustomerID, e.SellerID, e.At)})
 	}
 	return nil, fmt.Errorf("событие %s не описано во внешнем контракте", event.EventType())
+}
+
+func base(orderID, customerID, sellerID uuid.UUID, at time.Time) ordersv1.OrderEventBase {
+	return ordersv1.OrderEventBase{OrderID: orderID, CustomerID: customerID, SellerID: sellerID, OccurredAt: at}
 }

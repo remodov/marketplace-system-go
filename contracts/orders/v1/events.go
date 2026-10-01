@@ -66,3 +66,16 @@ type DisputeOpenedPayload struct {
 	OrderEventBase
 	Reason string `json:"reason"`
 }
+
+type OrderShippedPayload struct {
+	OrderEventBase
+	TrackingNumber string `json:"trackingNumber"`
+}
+
+type OrderDeliveredPayload struct {
+	OrderEventBase
+}
+
+type OrderExpiredPayload struct {
+	OrderEventBase
+}

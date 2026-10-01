@@ -51,8 +51,26 @@ type OrderDTO struct {
 	Total           decimal.Decimal `json:"total"`
 	Currency        string          `json:"currency"`
 	ShippingAddress AddressDTO      `json:"shippingAddress"`
+	PaymentID       *uuid.UUID      `json:"paymentId,omitempty"`
+	PaidAt          *time.Time      `json:"paidAt,omitempty"`
+	ShippedAt       *time.Time      `json:"shippedAt,omitempty"`
+	DeliveredAt     *time.Time      `json:"deliveredAt,omitempty"`
+	ClosedAt        *time.Time      `json:"closedAt,omitempty"`
 	CreatedAt       time.Time       `json:"createdAt"`
 	UpdatedAt       time.Time       `json:"updatedAt"`
+}
+
+type CancelOrderRequest struct {
+	ReasonCode string `json:"reasonCode"`
+	Comment    string `json:"comment"`
+}
+
+type ShipOrderRequest struct {
+	TrackingNumber string `json:"trackingNumber"`
+}
+
+type PayOrderRequest struct {
+	PaymentID *uuid.UUID `json:"paymentId"`
 }
 
 func toAddress(a AddressDTO) aggregate.Address {
@@ -69,10 +87,20 @@ func toDTO(o *aggregate.Order) OrderDTO {
 	}
 	address := o.ShippingAddress()
 	total := o.Total()
+	state := o.Lifecycle()
 	return OrderDTO{
 		ID: o.ID(), CustomerID: o.CustomerID(), SellerID: o.SellerID(), Status: string(o.Status()), Items: items,
 		ShippingFee: o.ShippingFee().Amount, Total: total.Amount, Currency: total.Currency,
 		ShippingAddress: AddressDTO{Country: address.Country, City: address.City, Street: address.Street, PostalCode: address.PostalCode, PickupPoint: address.PickupPoint},
-		CreatedAt:       o.CreatedAt(), UpdatedAt: o.UpdatedAt(),
+		PaymentID:       state.PaymentID, PaidAt: utc(state.PaidAt), ShippedAt: utc(state.ShippedAt), DeliveredAt: utc(state.DeliveredAt), ClosedAt: utc(state.ClosedAt),
+		CreatedAt: o.CreatedAt().UTC(), UpdatedAt: o.UpdatedAt().UTC(),
 	}
+}
+
+func utc(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }

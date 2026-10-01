@@ -31,6 +31,23 @@ type fixedClock struct{}
 
 func (fixedClock) Now() time.Time { return now }
 
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *testClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
 func TestMain(m *testing.M) {
 	databaseURL = os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -57,14 +74,92 @@ func newApp(t *testing.T, gateway out.CatalogGateway) http.Handler {
 
 func newAppWith(t *testing.T, gateway out.CatalogGateway, publisher out.ExternalEventPublisher) *bootstrap.App {
 	t.Helper()
-	app, err := bootstrap.Build(context.Background(), bootstrap.Config{DatabaseURL: databaseURL, AuthMode: "local"},
-		bootstrap.Deps{Clock: fixedClock{}, Catalog: gateway, Publisher: publisher})
+	return newAppFull(t, bootstrap.Deps{Clock: fixedClock{}, Catalog: gateway, Publisher: publisher})
+}
+
+func newAppFull(t *testing.T, deps bootstrap.Deps) *bootstrap.App {
+	t.Helper()
+	if deps.Publisher == nil {
+		deps.Publisher = &recordingPublisher{}
+	}
+	app, err := bootstrap.Build(context.Background(),
+		bootstrap.Config{DatabaseURL: databaseURL, AuthMode: "local", PaymentBaseURL: "http://127.0.0.1:1", ExpireAfter: 15 * time.Minute}, deps)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Close)
 	return app
 }
+
+type fakePayment struct {
+	URL      string
+	mu       sync.Mutex
+	requests []*http.Request
+	down     bool
+}
+
+func startPayment(t *testing.T) *fakePayment {
+	t.Helper()
+	fake := &fakePayment{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fake.mu.Lock()
+		fake.requests = append(fake.requests, r.Clone(context.Background()))
+		down := fake.down
+		fake.mu.Unlock()
+		if down {
+			dropConnection(w)
+			return
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/payments/"), "/refund")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"id":"%s","orderId":"%s","amount":100,"currency":"RUB","status":"REFUNDED"}`, id, uuid.New())
+	}))
+	t.Cleanup(server.Close)
+	fake.URL = server.URL
+	return fake
+}
+
+func (f *fakePayment) Requests() []*http.Request {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*http.Request(nil), f.requests...)
+}
+
+func (f *fakePayment) GoDown() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.down = true
+}
+
+func eventTypes(t *testing.T) []string {
+	t.Helper()
+	var types []string
+	for _, row := range outboxRows(t) {
+		types = append(types, row.EventType)
+	}
+	return types
+}
+
+func countEvents(t *testing.T, eventType string) int {
+	t.Helper()
+	count := 0
+	for _, row := range outboxRows(t) {
+		if row.EventType == eventType {
+			count++
+		}
+	}
+	return count
+}
+
+func postJSON(t *testing.T, router http.Handler, path, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	if body == "" {
+		body = "{}"
+	}
+	return call(t, router, http.MethodPost, path, token, body)
+}
+
+func sellerToken(id uuid.UUID) string { return "seller." + id.String() }
 
 type recordingPublisher struct {
 	mu       sync.Mutex
@@ -115,12 +210,12 @@ func outboxRows(t *testing.T) []outboxRow {
 	return result
 }
 
-func givenOutboxRow(t *testing.T, eventType, payload string) uuid.UUID {
+func givenOutboxRow(t *testing.T, eventType, payload string, at time.Time) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO outbox (id, aggregate_id, aggregate_type, event_type, event_version, payload, occurred_at)
-		 VALUES ($1, $2, 'Order', $3, 1, $4::jsonb, $5)`, id, uuid.New(), eventType, payload, now)
+		 VALUES ($1, $2, 'Order', $3, 1, $4::jsonb, $5)`, id, uuid.New(), eventType, payload, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +230,7 @@ func testSettings(baseURL string) catalog.Settings {
 
 func clearTables(t *testing.T) {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), "TRUNCATE outbox, idempotency_keys, order_items, orders"); err != nil {
+	if _, err := pool.Exec(context.Background(), "TRUNCATE processed_events, outbox, idempotency_keys, order_items, orders"); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -37,6 +37,14 @@ func run() error {
 
 	var background sync.WaitGroup
 	background.Go(func() { app.Relay.Run(ctx, cfg.OutboxInterval, 10*time.Second) })
+	background.Go(func() { app.Expirer.Run(ctx, cfg.ExpireInterval) })
+	if app.PaymentConsumer != nil {
+		background.Go(func() {
+			if err := app.PaymentConsumer.Run(ctx); err != nil {
+				slog.Error("потребитель событий платежа остановлен", "err", err)
+			}
+		})
+	}
 
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: app.Handler, ReadHeaderTimeout: 5 * time.Second}
 	go func() {

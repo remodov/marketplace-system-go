@@ -17,15 +17,10 @@ const (
 	StatusFailed     Status = "FAILED"
 )
 
+// TODO шаг 11: перечислить разрешённые переходы; всё, чего здесь нет, запрещено,
+// конечные статусы никуда не ведут, переход в себя же не переход.
 func (s Status) CanMoveTo(next Status) bool {
-	switch s {
-	case StatusAuthorized:
-		return next == StatusCaptured || next == StatusRefunded || next == StatusFailed
-	case StatusCaptured:
-		return next == StatusRefunded
-	default:
-		return false
-	}
+	return true
 }
 
 type InvalidTransitionError struct {

@@ -3,7 +3,6 @@ package payment
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,47 +22,23 @@ func NewService(db *sql.DB, clock Clock) *Service {
 	return &Service{db: db, clock: clock}
 }
 
+// TODO шаг 11: заказ платят один раз - повторная авторизация того же заказа
+// возвращает уже созданный платёж, а не списывает деньги второй раз.
 func (s *Service) Authorize(ctx context.Context, orderID uuid.UUID, amount decimal.Decimal, currency string) (Payment, error) {
-	var result Payment
-	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		existing, err := findByOrderID(ctx, tx, orderID)
-		if err == nil {
-			result = existing
-			return nil
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		now := s.clock.Now()
-		result = Payment{ID: uuid.New(), OrderID: orderID, Amount: amount.Round(2), Currency: currency, Status: StatusAuthorized, CreatedAt: now, UpdatedAt: now}
-		return insert(ctx, tx, result)
-	})
-	return result, err
+	now := s.clock.Now()
+	payment := Payment{ID: uuid.New(), OrderID: orderID, Amount: amount.Round(2), Currency: currency, Status: StatusAuthorized, CreatedAt: now, UpdatedAt: now}
+	err := s.inTx(ctx, func(tx *sql.Tx) error { return insert(ctx, tx, payment) })
+	return payment, err
 }
 
 func (s *Service) Capture(ctx context.Context, id uuid.UUID) (Payment, error) {
 	return s.moveTo(ctx, id, StatusCaptured)
 }
 
+// TODO шаг 11: повторный возврат это не второй возврат и не ошибка - сага может
+// дойти до компенсации дважды, ответ тот же, деньги возвращаются один раз.
 func (s *Service) Refund(ctx context.Context, id uuid.UUID) (Payment, error) {
-	var result Payment
-	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		current, err := findByID(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if current.Status == StatusRefunded {
-			result = current
-			return nil
-		}
-		moved, err := current.MoveTo(StatusRefunded, s.clock.Now())
-		if err != nil {
-			return err
-		}
-		result = moved
-		return updateStatus(ctx, tx, moved)
-	})
-	return result, err
+	return s.moveTo(ctx, id, StatusRefunded)
 }
 
 func (s *Service) ByID(ctx context.Context, id uuid.UUID) (Payment, error) {

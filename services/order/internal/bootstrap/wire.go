@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -32,16 +31,11 @@ type Deps struct {
 	Catalog out.CatalogGateway
 }
 
+// TODO шаг 8: подобрать числа - таймауты на соединение и запрос, попытки, пауза,
+// порог размыкателя. Худшее время ответа = попытки x (таймаут + пауза); оно должно
+// быть меньше, чем терпение браузера покупателя.
 func CatalogSettings(baseURL string) catalog.Settings {
-	return catalog.Settings{
-		BaseURL:            baseURL,
-		ConnectTimeout:     500 * time.Millisecond,
-		RequestTimeout:     time.Second,
-		Attempts:           2,
-		Backoff:            50 * time.Millisecond,
-		BreakerMinRequests: 10,
-		BreakerOpenFor:     60 * time.Second,
-	}
+	return catalog.Settings{BaseURL: baseURL}
 }
 
 func Migrate(ctx context.Context, databaseURL string) error {

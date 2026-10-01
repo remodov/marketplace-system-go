@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 
@@ -44,8 +43,9 @@ func NewCreateOrderHandler(orders out.OrderRepository, catalog out.CatalogGatewa
 	return &CreateOrderHandler{orders: orders, catalog: catalog, keys: keys, clock: clock, ids: ids, uow: uow}
 }
 
-var errKeyTaken = errors.New("ключ идемпотентности занят другим запросом")
-
+// TODO шаг 9: до работы спросить у keys прежний заказ по ключу и хешу (конфликт
+// хеша уходит наружу как есть), после сборки заказа записать его и занять ключ в
+// одной транзакции; если ключ занять не удалось, вернуть чужой заказ с Created=false.
 func (h *CreateOrderHandler) Handle(ctx context.Context, cmd CreateOrder) (CreateOrderResult, error) {
 	if len(cmd.Lines) == 0 {
 		return CreateOrderResult{}, apperr.Invalid("EMPTY_ORDER", "В заказе нет ни одной позиции")
@@ -53,45 +53,14 @@ func (h *CreateOrderHandler) Handle(ctx context.Context, cmd CreateOrder) (Creat
 	if err := requireSingleSeller(cmd.Lines); err != nil {
 		return CreateOrderResult{}, err
 	}
-	if existing, found, err := h.keys.Find(ctx, cmd.IdempotencyKey, cmd.RequestHash); err != nil || found {
-		return h.replay(ctx, existing, err)
-	}
 	order, err := h.build(ctx, cmd)
 	if err != nil {
 		return CreateOrderResult{}, err
 	}
-	err = h.uow.Within(ctx, func(ctx context.Context) error {
-		if err := h.orders.Insert(ctx, order); err != nil {
-			return err
-		}
-		claimed, err := h.keys.Claim(ctx, cmd.IdempotencyKey, cmd.RequestHash, order.ID(), order.CreatedAt())
-		if err != nil {
-			return err
-		}
-		if !claimed {
-			return errKeyTaken
-		}
-		return nil
-	})
-	if errors.Is(err, errKeyTaken) {
-		existing, _, err := h.keys.Find(ctx, cmd.IdempotencyKey, cmd.RequestHash)
-		return h.replay(ctx, existing, err)
-	}
-	if err != nil {
+	if err := h.uow.Within(ctx, func(ctx context.Context) error { return h.orders.Insert(ctx, order) }); err != nil {
 		return CreateOrderResult{}, err
 	}
 	return CreateOrderResult{Order: order, Created: true}, nil
-}
-
-func (h *CreateOrderHandler) replay(ctx context.Context, orderID uuid.UUID, err error) (CreateOrderResult, error) {
-	if err != nil {
-		return CreateOrderResult{}, err
-	}
-	order, err := h.orders.ByID(ctx, orderID)
-	if err != nil {
-		return CreateOrderResult{}, err
-	}
-	return CreateOrderResult{Order: order, Created: false}, nil
 }
 
 func (h *CreateOrderHandler) build(ctx context.Context, cmd CreateOrder) (*aggregate.Order, error) {

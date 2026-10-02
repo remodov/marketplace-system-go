@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/setuptests.ts","./src/__tests__/funnel.test.ts","./src/__tests__/shop.test.tsx","./src/api/marketplace.ts","./src/components/shop.tsx","./src/funnel/funnel.ts"],"version":"5.9.3"}

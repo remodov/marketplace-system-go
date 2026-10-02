@@ -21,10 +21,11 @@ type ProductHandler struct {
 	price   *usecase.ChangeProductPriceHandler
 	status  *usecase.ChangeStatusHandler
 	queries *query.Handler
+	upload  *usecase.RequestImageUploadHandler
 }
 
-func NewProductHandler(create *usecase.CreateProductHandler, price *usecase.ChangeProductPriceHandler, status *usecase.ChangeStatusHandler, queries *query.Handler) *ProductHandler {
-	return &ProductHandler{create: create, price: price, status: status, queries: queries}
+func NewProductHandler(create *usecase.CreateProductHandler, price *usecase.ChangeProductPriceHandler, status *usecase.ChangeStatusHandler, queries *query.Handler, upload *usecase.RequestImageUploadHandler) *ProductHandler {
+	return &ProductHandler{create: create, price: price, status: status, queries: queries, upload: upload}
 }
 
 func (h *ProductHandler) Routes(r chi.Router) {
@@ -37,6 +38,7 @@ func (h *ProductHandler) Routes(r chi.Router) {
 			r.Post("/{productId}/publish", h.publishProduct)
 			r.Post("/{productId}/hide", h.hideProduct)
 			r.Patch("/{productId}/price", h.changeProductPrice)
+			r.Post("/{productId}/image-upload-url", h.requestImageUpload)
 		})
 	})
 }
@@ -160,6 +162,31 @@ func (h *ProductHandler) listMyProducts(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, toPageDTO(page))
 }
+
+func (h *ProductHandler) requestImageUpload(w http.ResponseWriter, r *http.Request) {
+	id, ok := productID(w, r)
+	if !ok {
+		return
+	}
+	var req ImageUploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "MALFORMED_REQUEST", "Невозможно разобрать тело запроса")
+		return
+	}
+	if req.ContentType == nil || !allowedImageTypes[*req.ContentType] {
+		writeProblemWithErrors(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "Ошибка валидации входных данных", map[string]string{"contentType": "image/jpeg, image/png или image/webp"})
+		return
+	}
+	principal, _ := security.PrincipalFrom(r.Context())
+	upload, err := h.upload.Handle(r.Context(), usecase.RequestImageUpload{ProductID: id, Requester: principal, ContentType: *req.ContentType})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ImageUploadURLDTO{Key: upload.Key, URL: upload.URL, ExpiresAt: upload.ExpiresAt})
+}
+
+var allowedImageTypes = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true}
 
 func productID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	id, err := uuid.Parse(chi.URLParam(r, "productId"))

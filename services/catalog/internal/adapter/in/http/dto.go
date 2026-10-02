@@ -33,6 +33,16 @@ type ProductPageDTO struct {
 	Total int64        `json:"total"`
 }
 
+type ImageUploadRequest struct {
+	ContentType *string `json:"contentType"`
+}
+
+type ImageUploadURLDTO struct {
+	Key       string    `json:"key"`
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
 type CreateProductRequest struct {
 	Title       *string          `json:"title"`
 	Description string           `json:"description"`

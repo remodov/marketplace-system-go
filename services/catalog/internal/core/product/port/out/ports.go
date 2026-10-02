@@ -71,3 +71,13 @@ type IDGenerator interface {
 type UnitOfWork interface {
 	Within(ctx context.Context, fn func(ctx context.Context) error) error
 }
+
+type PresignedUpload struct {
+	Key       string
+	URL       string
+	ExpiresAt time.Time
+}
+
+type ImageStorage interface {
+	PresignUpload(ctx context.Context, key, contentType string) (PresignedUpload, error)
+}

@@ -36,7 +36,10 @@ func TestMain(m *testing.M) {
 	if err := bootstrap.Migrate(ctx, url); err != nil {
 		log.Fatalf("тестовая база недоступна (%v): подними стенд командой docker compose -f infra/compose.yaml up -d", err)
 	}
-	app, err := bootstrap.Build(ctx, bootstrap.Config{DatabaseURL: url, AuthMode: "local"}, bootstrap.Deps{Clock: fixedClock{}})
+	cfg := bootstrap.FromEnv()
+	cfg.DatabaseURL = url
+	cfg.AuthMode = "local"
+	app, err := bootstrap.Build(ctx, cfg, bootstrap.Deps{Clock: fixedClock{}})
 	if err != nil {
 		log.Fatal(err)
 	}

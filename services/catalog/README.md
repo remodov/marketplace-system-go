@@ -43,6 +43,8 @@ go run ./cmd/catalog
 
 Переменные: `HTTP_ADDR` (`:8083`), `DATABASE_URL` (`postgres://catalog:catalog@localhost:5440/catalog`),
 `AUTH_MODE` (`local` или `jwt`), для `jwt` ещё `JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE`.
+Хранилище картинок: `IMAGES_ENDPOINT` (`http://localhost:9000`), `IMAGES_BUCKET` (`marketplace-images`),
+`IMAGES_ACCESS_KEY` и `IMAGES_SECRET_KEY` (`marketplace`), `IMAGES_REGION` (`us-east-1`), `IMAGES_UPLOAD_TTL` (`10m`).
 
 В режиме `local` токен это строка `role.uuid`, роли `seller`, `admin`, `customer`:
 
@@ -53,6 +55,14 @@ curl -s -X POST localhost:8083/api/v1/products -H "Authorization: Bearer seller.
 ```
 
 Карточку в статусе `DRAFT` видят только владелец и администратор; опубликованную видят все без токена.
+
+Фото грузится мимо сервиса: владелец просит временную ссылку, а файл кладёт браузер.
+
+```bash
+curl -s -X POST localhost:8083/api/v1/products/$PRODUCT/image-upload-url -H "Authorization: Bearer seller.$SELLER" \
+  -H 'Content-Type: application/json' -d '{"contentType":"image/jpeg"}'
+curl -X PUT "$URL_ИЗ_ОТВЕТА" -H 'Content-Type: image/jpeg' --data-binary @photo.jpg
+```
 
 ## Тесты
 

@@ -2,7 +2,6 @@ package ratelimit
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -27,19 +26,8 @@ func NewLimiter(client *redis.Client, perMinute int) *Limiter {
 }
 
 func (l *Limiter) Check(ctx context.Context, client string) (Decision, error) {
-	key := "rate:" + client + ":" + strconv.FormatInt(l.now().UnixMilli()/window.Milliseconds(), 10)
-	used, err := l.redis.Incr(ctx, key).Result()
-	if err != nil {
-		return Decision{}, err
-	}
-	if used == 1 {
-		if err := l.redis.Expire(ctx, key, window).Err(); err != nil {
-			return Decision{}, err
-		}
-	}
-	remaining := l.perMinute - used
-	if remaining < 0 {
-		remaining = 0
-	}
-	return Decision{Allowed: used <= l.perMinute, Remaining: remaining, RetryAfter: window}, nil
+	// TODO шаг 13: счётчик запросов клиента в текущем минутном окне.
+	// Ключ должен сам протухать вместе с окном - чистить его отдельной задачей
+	// не нужно. И считать надо на каждого клиента, а не на всех сразу.
+	return Decision{Allowed: true, Remaining: l.perMinute, RetryAfter: window}, nil
 }

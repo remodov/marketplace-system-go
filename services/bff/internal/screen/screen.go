@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"golang.org/x/sync/errgroup"
 )
 
 const PaymentNone = "NONE"
@@ -69,28 +68,12 @@ func (a *Assembler) Assemble(ctx context.Context, orderID uuid.UUID, authorizati
 		return OrderScreen{}, err
 	}
 
-	items := make([]Item, len(order.Items))
-	var paymentStatus string
-	eg, ctx := errgroup.WithContext(ctx)
-	for i, line := range order.Items {
-		eg.Go(func() error {
-			var card productCard
-			if _, err := a.catalog.getJSON(ctx, "/api/v1/products/"+line.ProductID.String(), authorization, &card); err != nil {
-				return err
-			}
-			items[i] = Item{ProductID: line.ProductID, Title: card.Title, Quantity: line.Quantity, Price: card.Price}
-			return nil
-		})
-	}
-	eg.Go(func() error {
-		status, err := a.paymentStatus(ctx, order.PaymentID, authorization)
-		paymentStatus = status
-		return err
-	})
-	if err := eg.Wait(); err != nil {
-		return OrderScreen{}, err
-	}
-	return OrderScreen{OrderID: order.ID, Status: order.Status, Total: order.Total, PaymentStatus: paymentStatus, Items: items}, nil
+	// TODO шаг 13: собрать экран.
+	// Заказ уже прочитан - из него известны товары и идентификатор платежа. Осталось
+	// добрать карточки товаров (a.catalog) и статус платежа (a.paymentStatus).
+	// Эти походы независимы, и экран не обязан ждать их по очереди.
+	_ = order
+	return OrderScreen{}, errors.New("шаг 13: экран ещё не собирается")
 }
 
 func (a *Assembler) paymentStatus(ctx context.Context, paymentID *uuid.UUID, authorization string) (string, error) {

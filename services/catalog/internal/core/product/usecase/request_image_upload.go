@@ -30,9 +30,9 @@ func (h *RequestImageUploadHandler) Handle(ctx context.Context, cmd RequestImage
 	if err != nil {
 		return out.PresignedUpload{}, err
 	}
-	if err := requireOwnership(product, cmd.Requester); err != nil {
-		return out.PresignedUpload{}, err
-	}
+	// TODO шаг 12: ссылку на загрузку получает только владелец товара (или администратор).
+	// Карточку смотреть может кто угодно, а грузить в неё файлы - нет.
+	// Чужой товар для не-владельца должен выглядеть как несуществующий.
 	key := "products/" + product.ID().String() + "/" + h.ids.NewID().String()
 	return h.images.PresignUpload(ctx, key, cmd.ContentType)
 }

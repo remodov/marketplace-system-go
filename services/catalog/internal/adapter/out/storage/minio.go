@@ -2,8 +2,8 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"time"
 
@@ -46,11 +46,8 @@ func NewImageStorage(settings Settings, clock out.Clock) (*ImageStorage, error) 
 }
 
 func (s *ImageStorage) PresignUpload(ctx context.Context, key, contentType string) (out.PresignedUpload, error) {
-	headers := http.Header{}
-	headers.Set("Content-Type", contentType)
-	signed, err := s.client.PresignHeader(ctx, http.MethodPut, s.bucket, key, s.uploadTTL, url.Values{}, headers)
-	if err != nil {
-		return out.PresignedUpload{}, fmt.Errorf("images: подпись ссылки: %w", err)
-	}
-	return out.PresignedUpload{Key: key, URL: signed.String(), ExpiresAt: s.clock.Now().Add(s.uploadTTL)}, nil
+	// TODO шаг 12: подписанная ссылка на PUT объекта.
+	// Тип содержимого должен войти в подпись, срок жизни берётся из настроек,
+	// expiresAt считается от часов сервиса. Клиент уже знает регион и в сеть не ходит.
+	return out.PresignedUpload{}, errors.New("шаг 12: ссылка на загрузку не реализована")
 }

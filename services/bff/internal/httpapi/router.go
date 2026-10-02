@@ -18,6 +18,7 @@ func NewRouter(limiter *ratelimit.Limiter, screens *screen.Assembler) http.Handl
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
 	r.Get("/health/live", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	r.Get("/health/ready", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	r.Group(func(r chi.Router) {
 		r.Use(ratelimit.Middleware(limiter))
 		r.Get("/api/v1/screens/order/{orderId}", orderScreen(screens))

@@ -220,3 +220,19 @@
 **Проверка:** доли дошедших до каждого шага считаются как в примере 10 → 4 → 2 → 1; шаг, до которого
 никто не дошёл, даёт ноль; полный путь покупки виден в воронке целиком; каталог, корзина и оформление
 с ключом идемпотентности и токеном покупателя работают как раньше.
+
+## Шаг 15. Доставка и наблюдаемость
+
+**Материал:** [/docker/go/dockerizing/](https://vikulin-va.ru/docker/go/dockerizing/) · [/docker/go/runtime/](https://vikulin-va.ru/docker/go/runtime/) · [/kubernetes/](https://vikulin-va.ru/kubernetes/) · [/observability/go/health-checks/](https://vikulin-va.ru/observability/go/health-checks/) · [/observability/go/metrics/](https://vikulin-va.ru/observability/go/metrics/) · [/cicd/](https://vikulin-va.ru/cicd/)
+
+**Даётся:** черновой `Dockerfile` стартового каталога (один слой, от root), манифест `deploy/k8s/catalog-starter.yaml`
+без проб и лимитов, эталонный `deploy/k8s/bff.yaml`, пайплайн `.github/workflows/ci.yml` с PostgreSQL и Redis,
+проверка выката `tools/check-deploy.py`, пакет `observability` с гистограммой времени ответа, middleware
+трассировки на OpenTelemetry и экспортом в OTLP.
+
+**Ученик:** собирает образ в два этапа со статическим бинарником и `distroless` без root; в манифесте
+заводит пробы готовности и живости, запросы и лимиты, `preStop` и версию образа вместо `latest`;
+монтирует пробы и `/metrics` с меткой сервиса и включает сэмплирование трасс по доле из настроек.
+
+**Проверка:** `tools/check-deploy.py` без замечаний (сейчас восемь), четыре проверки `observability_test.go`
+зелёные: обе пробы, метрики Prometheus с меткой `service` и маршрутом, сэмплер берёт все трассы при доле 1.0.

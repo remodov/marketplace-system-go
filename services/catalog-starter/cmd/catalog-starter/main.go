@@ -19,6 +19,7 @@ import (
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/cache"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/config"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/migrations"
+	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/observability"
 	"github.com/remodov/marketplace-system-go/services/catalog-starter/internal/product"
 )
 
@@ -56,10 +57,23 @@ func run() error {
 	}
 	defer pool.Close()
 
+	shutdownTracing, err := observability.Tracing(ctx, observability.Settings{
+		Service: cfg.ServiceName, OTLPEndpoint: cfg.OTLPEndpoint, SampleRatio: cfg.TraceSampleRatio,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(flushCtx)
+	}()
 	service := product.NewService(product.NewRepository(pool), newCache(cfg))
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.Logger, middleware.Recoverer)
+	router.Use(observability.Metrics(cfg.ServiceName), observability.Traced(cfg.ServiceName))
+	observability.Mount(router, pool.Ping)
 	product.Routes(router, service)
 
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second}

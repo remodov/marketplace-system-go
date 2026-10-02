@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  services:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: catalog
+          POSTGRES_PASSWORD: catalog
+          POSTGRES_DB: catalog_starter
+        ports: ["5440:5432"]
+        options: >-
+          --health-cmd "pg_isready -U catalog"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6381:6379"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Тестовые базы
+        run: |
+          for db in catalog_starter_test catalog catalog_test payments payments_test; do
+            psql postgres://catalog:catalog@localhost:5440/catalog_starter -c "CREATE DATABASE $db OWNER catalog"
+          done
+
+      - name: Проверка кода
+        run: go vet ./...
+
+      - name: Тесты сервисов
+        run: go test ./services/catalog-starter/... ./services/catalog/... ./services/payment/... ./services/bff/...
+
+      - name: Проверка манифестов, образа и пайплайна
+        run: python3 tools/check-deploy.py
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix web
+      - run: npm test --prefix web

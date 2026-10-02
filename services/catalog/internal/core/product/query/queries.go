@@ -21,6 +21,10 @@ type ListMyProducts struct {
 	Filter out.ListFilter
 }
 
+type ListPublished struct {
+	Filter out.ListFilter
+}
+
 type Handler struct {
 	products out.ProductRepository
 }
@@ -45,4 +49,8 @@ func (h *Handler) GetProduct(ctx context.Context, q GetProduct) (*aggregate.Prod
 
 func (h *Handler) ListMyProducts(ctx context.Context, q ListMyProducts) (out.ProductPage, error) {
 	return h.products.ListBySeller(ctx, q.Seller, q.Filter)
+}
+
+func (h *Handler) ListPublished(ctx context.Context, q ListPublished) (out.ProductPage, error) {
+	return h.products.ListPublished(ctx, q.Filter)
 }

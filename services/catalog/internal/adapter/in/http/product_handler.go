@@ -30,6 +30,7 @@ func NewProductHandler(create *usecase.CreateProductHandler, price *usecase.Chan
 
 func (h *ProductHandler) Routes(r chi.Router) {
 	r.Route("/api/v1/products", func(r chi.Router) {
+		r.Get("/", h.listProducts)
 		r.Get("/{productId}", h.getProduct)
 		r.Group(func(r chi.Router) {
 			r.Use(RequireRoles(security.RoleSeller, security.RoleAdmin))
@@ -141,6 +142,17 @@ func (h *ProductHandler) changeProductPrice(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, toDTO(product))
+}
+
+func (h *ProductHandler) listProducts(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filter := out.ListFilter{Page: atoiOr(q.Get("page"), 1), Size: atoiOr(q.Get("size"), 20), Sort: out.SortField(q.Get("sort"))}
+	page, err := h.queries.ListPublished(r.Context(), query.ListPublished{Filter: filter})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPageDTO(page))
 }
 
 func (h *ProductHandler) listMyProducts(w http.ResponseWriter, r *http.Request) {

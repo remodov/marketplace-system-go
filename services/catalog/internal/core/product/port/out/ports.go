@@ -39,6 +39,7 @@ type ProductRepository interface {
 	Insert(ctx context.Context, p *aggregate.Product) error
 	Update(ctx context.Context, p *aggregate.Product) error
 	ListBySeller(ctx context.Context, sellerID uuid.UUID, filter ListFilter) (ProductPage, error)
+	ListPublished(ctx context.Context, filter ListFilter) (ProductPage, error)
 }
 
 const (

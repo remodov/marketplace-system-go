@@ -58,18 +58,26 @@ func (r *PgProductRepository) Update(ctx context.Context, p *aggregate.Product) 
 }
 
 func (r *PgProductRepository) ListBySeller(ctx context.Context, sellerID uuid.UUID, filter out.ListFilter) (out.ProductPage, error) {
+	where := "WHERE seller_id = $1"
+	args := []any{sellerID}
+	if filter.Status != nil {
+		where += " AND status = $2::product_status"
+		args = append(args, string(*filter.Status))
+	}
+	return r.list(ctx, where, args, filter)
+}
+
+func (r *PgProductRepository) ListPublished(ctx context.Context, filter out.ListFilter) (out.ProductPage, error) {
+	return r.list(ctx, "WHERE status = 'PUBLISHED'::product_status", nil, filter)
+}
+
+func (r *PgProductRepository) list(ctx context.Context, where string, args []any, filter out.ListFilter) (out.ProductPage, error) {
 	page, size := filter.Page, filter.Size
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 || size > 100 {
 		size = 20
-	}
-	where := "WHERE seller_id = $1"
-	args := []any{sellerID}
-	if filter.Status != nil {
-		where += " AND status = $2::product_status"
-		args = append(args, string(*filter.Status))
 	}
 	var total int64
 	if err := db(ctx, r.pool).QueryRow(ctx, "SELECT count(*) FROM products "+where, args...).Scan(&total); err != nil {

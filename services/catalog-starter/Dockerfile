@@ -1,13 +1,9 @@
-FROM golang:1.26-alpine AS build
+# TODO шаг 15: образ сервиса.
+# Сейчас всё в один слой и от root: в образ уедут go toolchain, исходники и кэш модулей,
+# а контейнер побежит с лишними правами. Контекст сборки это корень репозитория.
+FROM golang:1.26-alpine
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/catalog-starter ./services/catalog-starter/cmd/catalog-starter
-
-FROM gcr.io/distroless/static-debian12:nonroot
-WORKDIR /app
-COPY --from=build /out/catalog-starter /app/catalog-starter
-USER nonroot:nonroot
+RUN go build -o /src/catalog-starter ./services/catalog-starter/cmd/catalog-starter
 EXPOSE 8082
-ENTRYPOINT ["/app/catalog-starter"]
+ENTRYPOINT ["/src/catalog-starter"]
